@@ -14,6 +14,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Word-synced lyrics are shown ahead of line-synced ones by default again, whichever source has them. Turn Prioritize word-synced lyrics off in Lyrics sources to let the source order decide.
 - The Nix package builds on a Mac without Xcode, and an Apple silicon Mac downloads it from the binary cache instead of compiling it.
 
+### Changed
+
+- The Play button on artist, album and playlist pages has a filled icon and the same space on both sides.
+
 ### Fixed
 
 - Your YouTube Music library lists every artist you follow, not only the first couple dozen.
