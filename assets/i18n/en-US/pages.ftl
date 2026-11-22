@@ -123,6 +123,40 @@ powerbar-type = Type
 hints-title = Type a label to press it
 dial-pending = Track { $number }
 
+# the list of keys ? opens
+keys-help-title = Keyboard keys
+keys-help-lists = Lists
+keys-help-moving = Moving around
+keys-help-playing = Playing
+keys-help-searching = Search
+keys-help-step = Next and previous row
+keys-help-ends = First and last row
+keys-help-half-page = Half a page down and up
+keys-help-play = Play the row
+keys-help-open = Open the row
+keys-help-filter = Filter the list
+keys-help-matches = Next and previous match
+keys-help-number = Play the track with that number
+keys-help-deselect = Clear the selection
+keys-help-jump = Label everything and press one
+keys-help-history = Back and forward
+keys-help-sections = Next and previous sidebar page
+keys-help-home = Go home
+keys-help-search = Go to search
+keys-help-recents = Go to recently played
+keys-help-songs = Go to songs
+keys-help-albums = Go to albums
+keys-help-artists = Go to artists
+keys-help-playlists = Go to playlists
+keys-help-quick-search = Quick search
+keys-help-pause = Play and pause
+keys-help-queue = Show the queue
+keys-help-lyrics = Show the lyrics
+keys-help-fullscreen = Full screen player
+keys-help-columns = Previous and next column
+keys-help-type = Back to the search field
+keys-help-step-field = Step through results while typing
+
 # search page
 search-placeholder = What do you want to listen to?
 search-browse = Browse all

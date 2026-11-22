@@ -58,7 +58,16 @@ actions!(
         ZoomOut,
         ZoomReset,
         HintJump,
-        FocusField
+        FocusField,
+        ShowKeys,
+        NextSection,
+        PreviousSection,
+        GoHome,
+        GoHistory,
+        GoSongs,
+        GoAlbums,
+        GoArtists,
+        GoPlaylists
     ]
 );
 
@@ -86,77 +95,124 @@ pub fn bindings(overrides: &BTreeMap<String, Vec<String>>) -> Vec<KeyBinding> {
     if cfg!(target_os = "macos") {
         bindings.extend(macos());
     }
-    bindings.extend(vim());
+    bindings.extend(vim(overrides));
     bindings
 }
 
-/// Vim's motions on every list: j and k step, gg and G jump to the ends, Ctrl+D and Ctrl+U
-/// move half a page. In the search field and the quick search, Ctrl+J, Ctrl+N, Ctrl+K and
-/// Ctrl+P step through the results without leaving the field, as fzf and Telescope do. The
-/// search results take h and l for the columns and / or i to type again. The quick search has
-/// a normal mode of its own: Escape leaves the field for the list, where these keys work,
-/// and i or / go back to typing. They come last, so they win over the Mac's Emacs keys in a
-/// field of the search page or the quick search.
-fn vim() -> Vec<KeyBinding> {
+/// Vim's motions, and Vimium's for moving around the app. On every list j and k step, gg
+/// and G jump to the ends, Ctrl+D and Ctrl+U move half a page, and n and N step through what
+/// `/` left in the list. Away from text, H and L go back and forward, J and K move down and up
+/// the sidebar, g with a letter opens a page and ? lists every key. In the search field and the
+/// quick search, Ctrl+J, Ctrl+N and Ctrl+P step through the results without leaving the field,
+/// as fzf and Telescope do; Ctrl+K stays the quick search's own toggle. The search results take
+/// h and l for the columns and / or i to type again. The quick search has a normal mode of its
+/// own: Escape leaves the field for the list, where these keys work, and i or / go back to
+/// typing. They come last, so they win over the Mac's Emacs keys in a field of the search page
+/// or the quick search. A key the user gave a shortcut under Settings, Keybinds is left to it.
+fn vim(overrides: &BTreeMap<String, Vec<String>>) -> Vec<KeyBinding> {
     let table = Some(TABLE_CONTEXT);
     let browsing = shortcuts::browsing_context();
     let results = format!("{SEARCH_CONTEXT} && !{INPUT_CONTEXT}");
     let typing = format!("{SEARCH_CONTEXT} > {INPUT_CONTEXT}");
     let quick_typing = format!("{POWERBAR_CONTEXT} > {INPUT_CONTEXT}");
     let quick_normal = format!("{POWERBAR_CONTEXT} && !{INPUT_CONTEXT}");
-    let digits =
+    let pages =
         format!("{WORKSPACE_CONTEXT} && !{INPUT_CONTEXT} && !{MENU_CONTEXT} && !{FORM_CONTEXT}");
 
-    let mut bindings = Vec::new();
+    let mut keys = VimKeys::new(overrides);
     for context in [
         table,
         Some(browsing.as_str()),
         Some(&results),
         Some(&quick_normal),
     ] {
-        bindings.extend([
-            KeyBinding::new("j", SelectNext, context),
-            KeyBinding::new("k", SelectPrevious, context),
-            KeyBinding::new("g g", SelectFirst, context),
-            KeyBinding::new("shift-g", SelectLast, context),
-            KeyBinding::new("home", SelectFirst, context),
-            KeyBinding::new("end", SelectLast, context),
-            KeyBinding::new("ctrl-d", SelectPageDown, context),
-            KeyBinding::new("ctrl-u", SelectPageUp, context),
-            KeyBinding::new("pagedown", SelectPageDown, context),
-            KeyBinding::new("pageup", SelectPageUp, context),
-        ]);
+        keys.bind("j", SelectNext, context);
+        keys.bind("k", SelectPrevious, context);
+        keys.bind("n", SelectNext, context);
+        keys.bind("shift-n", SelectPrevious, context);
+        keys.bind("g g", SelectFirst, context);
+        keys.bind("shift-g", SelectLast, context);
+        keys.bind("home", SelectFirst, context);
+        keys.bind("end", SelectLast, context);
+        keys.bind("ctrl-d", SelectPageDown, context);
+        keys.bind("ctrl-u", SelectPageUp, context);
+        keys.bind("pagedown", SelectPageDown, context);
+        keys.bind("pageup", SelectPageUp, context);
     }
     for context in [Some(typing.as_str()), Some(&quick_typing)] {
-        bindings.extend([
-            KeyBinding::new("ctrl-j", SelectNext, context),
-            KeyBinding::new("ctrl-n", SelectNext, context),
-            KeyBinding::new("ctrl-k", SelectPrevious, context),
-            KeyBinding::new("ctrl-p", SelectPrevious, context),
-        ]);
+        keys.bind("ctrl-j", SelectNext, context);
+        keys.bind("ctrl-n", SelectNext, context);
+        keys.bind("ctrl-p", SelectPrevious, context);
     }
-    bindings.extend([
-        KeyBinding::new("h", SelectLeft, Some(&results)),
-        KeyBinding::new("l", SelectRight, Some(&results)),
-        KeyBinding::new("o", Activate, Some(&results)),
-        KeyBinding::new("/", FocusField, Some(&results)),
-        KeyBinding::new("i", FocusField, Some(&results)),
-        KeyBinding::new("a", FocusField, Some(&results)),
-        KeyBinding::new("o", Activate, table),
-        KeyBinding::new("enter", Submit, Some(&quick_normal)),
-        KeyBinding::new("o", PowerbarDetails, Some(&quick_normal)),
-        KeyBinding::new("i", FocusField, Some(&quick_normal)),
-        KeyBinding::new("a", FocusField, Some(&quick_normal)),
-        KeyBinding::new("/", FocusField, Some(&quick_normal)),
-        KeyBinding::new("q", Dismiss, Some(&quick_normal)),
-        KeyBinding::new("escape", Dismiss, Some(&quick_normal)),
-    ]);
-    bindings.extend(
-        "0123456789"
-            .chars()
-            .map(|digit| KeyBinding::new(&digit.to_string(), TypeDigit(digit), Some(&digits))),
-    );
-    bindings
+    keys.bind("h", SelectLeft, Some(&results));
+    keys.bind("l", SelectRight, Some(&results));
+    keys.bind("o", Activate, Some(&results));
+    keys.bind("/", FocusField, Some(&results));
+    keys.bind("i", FocusField, Some(&results));
+    keys.bind("a", FocusField, Some(&results));
+    keys.bind("o", Activate, table);
+    keys.bind("enter", Submit, Some(&quick_normal));
+    keys.bind("o", PowerbarDetails, Some(&quick_normal));
+    keys.bind("i", FocusField, Some(&quick_normal));
+    keys.bind("a", FocusField, Some(&quick_normal));
+    keys.bind("/", FocusField, Some(&quick_normal));
+    keys.bind("q", Dismiss, Some(&quick_normal));
+    keys.bind("escape", Dismiss, Some(&quick_normal));
+
+    let pages = Some(pages.as_str());
+    keys.bind("shift-h", NavigateBack, pages);
+    keys.bind("shift-l", NavigateForward, pages);
+    keys.bind("shift-j", NextSection, pages);
+    keys.bind("shift-k", PreviousSection, pages);
+    keys.bind("g t", NextSection, pages);
+    keys.bind("g shift-t", PreviousSection, pages);
+    keys.bind("g h", GoHome, pages);
+    keys.bind("g s", OpenSearch, pages);
+    keys.bind("g r", GoHistory, pages);
+    keys.bind("g l", GoSongs, pages);
+    keys.bind("g a", GoAlbums, pages);
+    keys.bind("g shift-a", GoArtists, pages);
+    keys.bind("g p", GoPlaylists, pages);
+    keys.bind("?", ShowKeys, pages);
+    keys.bind("shift-/", ShowKeys, pages);
+    keys.bind("?", ShowKeys, Some(&quick_normal));
+    for digit in "0123456789.".chars() {
+        keys.bind(&digit.to_string(), TypeDigit(digit), pages);
+    }
+    keys.bindings
+}
+
+/// The vim bindings being gathered, less any whose first key the user gave a shortcut, so a
+/// key chosen under Settings, Keybinds is never quietly taken over.
+struct VimKeys {
+    taken: Vec<gpui::Keystroke>,
+    bindings: Vec<KeyBinding>,
+}
+
+impl VimKeys {
+    fn new(overrides: &BTreeMap<String, Vec<String>>) -> Self {
+        let taken = overrides
+            .values()
+            .flatten()
+            .filter_map(|keys| keys.split(' ').next())
+            .filter_map(|key| gpui::Keystroke::parse(key).ok())
+            .collect();
+        Self {
+            taken,
+            bindings: Vec::new(),
+        }
+    }
+
+    fn bind<A: gpui::Action>(&mut self, keys: &str, action: A, context: Option<&str>) {
+        let first = keys
+            .split(' ')
+            .next()
+            .and_then(|key| gpui::Keystroke::parse(key).ok());
+        if first.is_some_and(|first| self.taken.contains(&first)) {
+            return;
+        }
+        self.bindings.push(KeyBinding::new(keys, action, context));
+    }
 }
 
 /// The fixed bindings every platform gets: quitting, equalizer undo, lists, menus, search, forms

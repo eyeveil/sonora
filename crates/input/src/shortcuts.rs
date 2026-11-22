@@ -607,11 +607,11 @@ mod tests {
             assert_eq!(action_for("j", names), None);
             assert_eq!(action_for("ctrl-j", names), Some("table::SelectNext"));
             assert_eq!(action_for("ctrl-n", names), Some("table::SelectNext"));
-            // Ctrl+K deletes to the end of a Mac field elsewhere, but steps up here.
-            assert_eq!(action_for("ctrl-k", names), Some("table::SelectPrevious"));
             assert_eq!(action_for("ctrl-p", names), Some("table::SelectPrevious"));
+            // Ctrl+K stays the quick search's toggle, so it closes the quick search from its
+            // own field and opens it from the search page's.
+            assert_ne!(action_for("ctrl-k", names), Some("table::SelectPrevious"));
         }
-        // Ctrl+K still opens the quick search everywhere else.
         assert_eq!(
             action_for("ctrl-k", &["Workspace"]),
             Some("sonora::TogglePowerbar")
@@ -619,8 +619,56 @@ mod tests {
     }
 
     #[test]
+    fn vimium_keys_move_around_the_app() {
+        let page = ["Workspace"];
+        let list = ["Workspace", TABLE_CONTEXT];
+        for names in [&page[..], &list[..]] {
+            assert_eq!(action_for("shift-h", names), Some("sonora::NavigateBack"));
+            assert_eq!(
+                action_for("shift-l", names),
+                Some("sonora::NavigateForward")
+            );
+            assert_eq!(action_for("shift-j", names), Some("sonora::NextSection"));
+            assert_eq!(
+                action_for("shift-k", names),
+                Some("sonora::PreviousSection")
+            );
+            assert_eq!(action_for("g h", names), Some("sonora::GoHome"));
+            assert_eq!(action_for("g s", names), Some("sonora::OpenSearch"));
+            assert_eq!(action_for("g p", names), Some("sonora::GoPlaylists"));
+            assert_eq!(action_for("shift-/", names), Some("sonora::ShowKeys"));
+            assert_eq!(action_for("n", names), Some("table::SelectNext"));
+            assert_eq!(action_for("shift-n", names), Some("table::SelectPrevious"));
+        }
+        // None of them reach a text field or a dialog.
+        for names in [
+            &["Workspace", INPUT_CONTEXT][..],
+            &["Workspace", FORM_CONTEXT][..],
+        ] {
+            for keys in ["shift-h", "shift-j", "g h", "shift-/", "n", "3"] {
+                assert_eq!(action_for(keys, names), None, "{keys} in {names:?}");
+            }
+        }
+        // l keeps showing the lyrics on a page, and only the search results take it.
+        assert_eq!(action_for("l", &page), Some("sonora::ToggleLyrics"));
+    }
+
+    #[test]
+    fn a_key_the_user_bound_beats_the_vim_key() {
+        let overrides = BTreeMap::from([("toggle-shuffle".to_owned(), vec!["j".to_owned()])]);
+        let keymap = gpui::Keymap::new(crate::bindings(&overrides));
+        let input = [gpui::Keystroke::parse("j").unwrap()];
+        let (bindings, _) = keymap.bindings_for_input(&input, &stack(&["Workspace"]));
+        assert_eq!(
+            bindings.first().map(|binding| binding.action().name()),
+            Some("sonora::ToggleShuffle")
+        );
+    }
+
+    #[test]
     fn digits_play_rows_but_never_type_into_fields() {
         assert_eq!(action_for("3", &["Workspace"]), Some("sonora::TypeDigit"));
+        assert_eq!(action_for(".", &["Workspace"]), Some("sonora::TypeDigit"));
         assert_eq!(
             action_for("3", &["Workspace", TABLE_CONTEXT]),
             Some("sonora::TypeDigit")

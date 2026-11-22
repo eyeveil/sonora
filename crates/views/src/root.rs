@@ -2,11 +2,12 @@ use gpui::{AnyView, Context, Entity, MouseButton, NavigationDirection, Render, T
 use gpui::{App, Font, FontFallbacks, SharedString, StyleRefinement, font, prelude::*};
 use gpui::{Window, deferred, div};
 use input::{
-    CloseWindow, HintJump, MinimizeWindow, NavigateBack, NavigateForward, OpenFilter, OpenSearch,
-    OpenSettings, Refresh, ShowMembers, ToggleFullscreen, ToggleLyrics, TogglePowerbar,
-    ToggleQueue, ToggleWindowFullscreen, ZoomWindow,
+    CloseWindow, GoAlbums, GoArtists, GoHistory, GoHome, GoPlaylists, GoSongs, HintJump,
+    MinimizeWindow, NavigateBack, NavigateForward, NextSection, OpenFilter, OpenSearch,
+    OpenSettings, PreviousSection, Refresh, ShowKeys, ShowMembers, ToggleFullscreen, ToggleLyrics,
+    TogglePowerbar, ToggleQueue, ToggleWindowFullscreen, ZoomWindow,
 };
-use router::{Destination, NavigationEvent, back, forward, navigate};
+use router::{Destination, LibraryTab, NavigationEvent, back, forward, navigate};
 use state::{
     ArtistDetail, Detail, GenreDetails, Genres, HistoryState, Home, Io, Library, LibraryState,
     Network, Playback, Profile, Queue, Reconnected, SYSTEM_FONT, Scan, Search, Session,
@@ -19,9 +20,10 @@ use ui::{
     Stillness, Theme, ThemeKind, clear_listing,
 };
 
+use crate::chrome::step_section;
 use crate::chrome::{
-    Busy, JamCode, JamInvite, JamJoin, PlayerBar, SessionCode, SessionJoin, ThemeInvite, TitleBar,
-    TitleBarEvent, TitleBarOptions, ToastStack, Toolbar, Tooled,
+    Busy, JamCode, JamInvite, JamJoin, KeysHelp, PlayerBar, SessionCode, SessionJoin, ThemeInvite,
+    TitleBar, TitleBarEvent, TitleBarOptions, ToastStack, Toolbar, Tooled,
 };
 use crate::screens::search::SearchView;
 use crate::screens::settings::SettingsHeader;
@@ -170,6 +172,8 @@ pub struct Root {
     powerbar: Entity<Powerbar>,
     /// The quick jump labels, drawn over everything so a label reaches any button on screen.
     hints: Entity<HintLayer>,
+    /// The list of keys `?` opens.
+    keys_help: Entity<KeysHelp>,
     dialogs: Dialogs,
     /// The toasts, hung above the player bar or the fullscreen dock, whichever shell is up.
     toasts: Entity<ToastStack>,
@@ -429,6 +433,7 @@ impl Root {
             theme_invite: cx.new(ThemeInvite::new),
             powerbar,
             hints: cx.new(|cx| HintLayer::new(window, cx)),
+            keys_help: cx.new(KeysHelp::new),
             dialogs: Dialogs::new(cx),
             toasts: cx.new(ToastStack::new),
             background: None,
@@ -1371,6 +1376,7 @@ impl Render for Root {
             .child(self.jam_invite.clone())
             .child(self.theme_invite.clone())
             .child(self.powerbar.clone())
+            .child(self.keys_help.clone())
             .child(self.hints.clone());
 
         let root = div()
@@ -1438,12 +1444,35 @@ impl Render for Root {
                 cx.listener(|this, _: &ToggleLyrics, _, cx| this.show_side(SideTab::Lyrics, cx)),
             )
             .on_action(cx.listener(|this, _: &HintJump, window, cx| {
-                // The quick search covers the page, and its own keys pick its results.
-                if this.signing_in || this.powerbar.read(cx).is_open() {
+                // The quick search covers the page, and its own keys pick its results. A dialog
+                // or the key list holds the keyboard, so labels on the page behind it could
+                // press past it.
+                let covered = this.powerbar.read(cx).is_open()
+                    || this.keys_help.read(cx).is_open()
+                    || dialog_focused(window);
+                if this.signing_in || covered {
                     return;
                 }
                 this.hints.update(cx, |hints, cx| hints.open(window, cx));
             }))
+            .on_action(cx.listener(|this, _: &ShowKeys, window, cx| {
+                if !this.signing_in {
+                    this.keys_help
+                        .update(cx, |help, cx| help.toggle(window, cx));
+                }
+            }))
+            .on_action(|_: &NextSection, _, cx| step_section(false, cx))
+            .on_action(|_: &PreviousSection, _, cx| step_section(true, cx))
+            .on_action(|_: &GoHome, _, cx| navigate(Destination::Home, cx))
+            .on_action(|_: &GoHistory, _, cx| navigate(Destination::History, cx))
+            .on_action(|_: &GoSongs, _, cx| navigate(Destination::Library(LibraryTab::Songs), cx))
+            .on_action(|_: &GoAlbums, _, cx| navigate(Destination::Library(LibraryTab::Albums), cx))
+            .on_action(|_: &GoArtists, _, cx| {
+                navigate(Destination::Library(LibraryTab::Artists), cx)
+            })
+            .on_action(|_: &GoPlaylists, _, cx| {
+                navigate(Destination::Library(LibraryTab::Playlists), cx)
+            })
             .on_action(cx.listener(|this, _: &TogglePowerbar, window, cx| {
                 // The sign-in screen stands in for every shell, so there is nothing to search.
                 if !this.signing_in {
@@ -1476,4 +1505,12 @@ impl Render for Root {
         let root = root.child(WindowFrame::new());
         root
     }
+}
+
+/// Whether a dialog holds the keyboard: every dialog puts a form at the focus.
+fn dialog_focused(window: &Window) -> bool {
+    window
+        .context_stack()
+        .iter()
+        .any(|context| context.contains(ui::FORM_CONTEXT))
 }

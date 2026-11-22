@@ -989,3 +989,33 @@ fn chevron(open: bool) -> &'static str {
         false => "icons/chevron-right.svg",
     }
 }
+
+/// Opens the sidebar page after the current one, or before it for `back`, wrapping at the
+/// ends and skipping the rows the listener hid: J and K. A page off the sidebar, such as an
+/// album, steps from the top.
+pub(crate) fn step_section(back: bool, cx: &mut App) {
+    let settings = Sonora::global(cx).settings.read(cx);
+    let shown: Vec<Destination> = NAV
+        .iter()
+        .filter(|(entry, _, _)| entry_shown(*entry, settings))
+        .map(|(_, _, destination)| destination.clone())
+        .collect();
+    if shown.is_empty() {
+        return;
+    }
+    let current = router::trail(cx).read(cx).current();
+    let at = shown
+        .iter()
+        .position(|destination| destination.same_section(&current));
+    let count = shown.len();
+    let next = match (at, back) {
+        (Some(at), false) => (at + 1) % count,
+        (Some(at), true) => (at + count - 1) % count,
+        (None, false) => 0,
+        (None, true) => count - 1,
+    };
+    match shown[next].in_settings() {
+        true => open_settings(cx),
+        false => navigate(shown[next].clone(), cx),
+    }
+}
