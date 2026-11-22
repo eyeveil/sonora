@@ -6,13 +6,13 @@ use gpui::{
     point, px,
 };
 use i18n::t;
-use input::{POWERBAR_CONTEXT, PowerbarDetails};
+use input::{FocusField, POWERBAR_CONTEXT, PowerbarDetails};
 use router::{Destination, navigate};
 use state::{Hit, Origin, Playback, Search};
 use ui::{
-    ActiveTheme as _, Button, Card, Cascade, Dismiss, Input, Kbd, SelectNext, SelectPrevious,
-    Spinner, Sprung, Submit, Text, Unfold, blurring, corners, effects, eyebrow, popover_fill,
-    snapped, spoken_vacant,
+    ActiveTheme as _, Button, Card, Cascade, Dismiss, Input, Kbd, SelectFirst, SelectLast,
+    SelectNext, SelectPageDown, SelectPageUp, SelectPrevious, Spinner, Sprung, Submit, Text,
+    Unfold, blurring, corners, effects, eyebrow, popover_fill, snapped, spoken_vacant,
 };
 
 use crate::screens::search::hit_card;
@@ -47,6 +47,8 @@ const FROST: Pixels = px(24.);
 const BLUR_LEAST: Pixels = px(0.05);
 /// How close the panel's spring has to come to count as landed.
 const REST: f32 = 0.001;
+/// How many results Ctrl+D and Ctrl+U move in normal mode, half of what the panel lists.
+const HALF_PAGE: usize = MAX_HITS / 2;
 
 /// A floating quick search over the whole window. It drops in from above with the window
 /// blurring away behind it, and its results surface one after another as they arrive.
@@ -67,6 +69,9 @@ pub(crate) struct Powerbar {
     unfold: Unfold,
     /// The results surfacing one after another as they arrive.
     cascade: Cascade,
+    /// Holds the keyboard in normal mode, where the letters move through the results the way
+    /// Vim's do instead of typing.
+    normal: FocusHandle,
 }
 
 /// Where the keyboard cursor rests, which is what Enter acts on.
@@ -165,11 +170,17 @@ impl Powerbar {
                     shown: Sprung::at(0.),
                     unfold: Unfold::default(),
                     cascade: Cascade::default(),
+                    normal: cx.focus_handle(),
                 }
             });
             cx.set_global(Installed(bar));
         }
         cx.global::<Installed>().0.clone()
+    }
+
+    /// Whether the panel is up.
+    pub fn is_open(&self) -> bool {
+        self.open
     }
 
     pub fn toggle(window: &mut Window, cx: &mut App) {
@@ -289,6 +300,61 @@ impl Powerbar {
                 cx.notify();
             }
         }
+    }
+
+    /// gg: the first result.
+    fn select_first(&mut self, _: &SelectFirst, _: &mut Window, cx: &mut Context<Self>) {
+        if !self.hits.is_empty() {
+            self.choose(0, cx);
+        }
+    }
+
+    /// G: the last result.
+    fn select_last(&mut self, _: &SelectLast, _: &mut Window, cx: &mut Context<Self>) {
+        if let Some(last) = self.hits.len().checked_sub(1) {
+            self.choose(last, cx);
+        }
+    }
+
+    /// Ctrl+D: half the list down.
+    fn select_page_down(&mut self, _: &SelectPageDown, _: &mut Window, cx: &mut Context<Self>) {
+        if let Some(last) = self.hits.len().checked_sub(1) {
+            let at = self.selected().map_or(0, |at| (at + HALF_PAGE).min(last));
+            self.choose(at, cx);
+        }
+    }
+
+    /// Ctrl+U: half the list up.
+    fn select_page_up(&mut self, _: &SelectPageUp, _: &mut Window, cx: &mut Context<Self>) {
+        if !self.hits.is_empty() {
+            let at = self.selected().map_or(0, |at| at.saturating_sub(HALF_PAGE));
+            self.choose(at, cx);
+        }
+    }
+
+    /// Whether the keyboard is in normal mode, on the list rather than in the field.
+    fn in_normal(&self, window: &Window) -> bool {
+        self.normal.is_focused(window)
+    }
+
+    /// Escape: from the field it goes to normal mode on the list, the cursor on the first
+    /// result if it was in the field; from normal mode it closes the panel.
+    fn escape(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.in_normal(window) || self.hits.is_empty() {
+            self.close(window, cx);
+            return;
+        }
+        if matches!(self.cursor, Cursor::Field) {
+            self.cursor = Cursor::First;
+        }
+        window.focus(&self.normal, cx);
+        cx.notify();
+    }
+
+    /// i, a or / in normal mode: back to typing in the field.
+    fn insert(&mut self, _: &FocusField, window: &mut Window, cx: &mut Context<Self>) {
+        self.input.update(cx, |input, cx| input.focus(window, cx));
+        cx.notify();
     }
 
     /// Enter: plays the chosen song at once and opens anything else. With no result chosen it
@@ -461,8 +527,9 @@ impl Powerbar {
     /// The Enter hint names what Enter does to the result it would act on, or says it searches
     /// when the cursor is in the field. The Ctrl+Enter hint shows only for a song, since for
     /// anything else Enter already opens it.
-    fn hints(&self, cx: &App) -> impl IntoElement {
+    fn hints(&self, window: &Window, cx: &App) -> impl IntoElement {
         let theme = cx.theme();
+        let normal = self.in_normal(window);
         let target = self.target();
         let song = matches!(target, Some(Hit::Song(_)));
         let enter = match target {
@@ -500,7 +567,14 @@ impl Powerbar {
                     t!("powerbar-song"),
                 ))
             })
-            .child(hint("powerbar-hint-close", "escape", t!("common-dismiss")))
+            .when(normal, |this| {
+                this.child(hint("powerbar-hint-move", "j", t!("powerbar-move")))
+                    .child(hint("powerbar-hint-type", "i", t!("powerbar-type")))
+            })
+            .child(match normal {
+                true => hint("powerbar-hint-close", "escape", t!("common-dismiss")),
+                false => hint("powerbar-hint-normal", "escape", t!("powerbar-normal")),
+            })
     }
 }
 
@@ -572,7 +646,9 @@ impl Render for Powerbar {
             })
             // The key hints only make sense with something to act on, so they arrive with the
             // first results and ride the same growing height.
-            .when(!self.hits.is_empty(), |this| this.child(self.hints(cx)));
+            .when(!self.hits.is_empty(), |this| {
+                this.child(self.hints(window, cx))
+            });
         let body = self.unfold.wrap(body, empty, window, cx);
         let height = self.unfold.height();
 
@@ -657,13 +733,19 @@ impl Render for Powerbar {
             .h(viewport.height)
             .when(self.open, |this| {
                 this.key_context(POWERBAR_CONTEXT)
+                    .track_focus(&self.normal)
                     .on_action(cx.listener(Self::select_next))
                     .on_action(cx.listener(Self::select_previous))
+                    .on_action(cx.listener(Self::select_first))
+                    .on_action(cx.listener(Self::select_last))
+                    .on_action(cx.listener(Self::select_page_down))
+                    .on_action(cx.listener(Self::select_page_up))
+                    .on_action(cx.listener(Self::insert))
                     .on_action(cx.listener(Self::activate))
                     .on_action(cx.listener(Self::details))
                     .on_action(cx.listener(|this, _: &Dismiss, window, cx| {
                         cx.stop_propagation();
-                        this.close(window, cx);
+                        this.escape(window, cx);
                     }))
             })
             .child(scrim)

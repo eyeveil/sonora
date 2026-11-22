@@ -2,7 +2,7 @@ use gpui::{AnyView, Context, Entity, MouseButton, NavigationDirection, Render, T
 use gpui::{App, Font, FontFallbacks, SharedString, StyleRefinement, font, prelude::*};
 use gpui::{Window, deferred, div};
 use input::{
-    CloseWindow, MinimizeWindow, NavigateBack, NavigateForward, OpenFilter, OpenSearch,
+    CloseWindow, HintJump, MinimizeWindow, NavigateBack, NavigateForward, OpenFilter, OpenSearch,
     OpenSettings, Refresh, ShowMembers, ToggleFullscreen, ToggleLyrics, TogglePowerbar,
     ToggleQueue, ToggleWindowFullscreen, ZoomWindow,
 };
@@ -15,8 +15,8 @@ use state::{
 #[cfg(any(target_os = "linux", target_os = "freebsd"))]
 use ui::WindowFrame;
 use ui::{
-    ActiveTheme as _, Dismiss, Entrance, INPUT_CONTEXT, Look, Springs, Sprung, Stillness, Theme,
-    ThemeKind, clear_listing,
+    ActiveTheme as _, Dismiss, Entrance, HintLayer, INPUT_CONTEXT, Look, Springs, Sprung,
+    Stillness, Theme, ThemeKind, clear_listing,
 };
 
 use crate::chrome::{
@@ -168,6 +168,8 @@ pub struct Root {
     theme_invite: Entity<ThemeInvite>,
     /// The quick search, drawn over whichever shell is up so it opens in fullscreen too.
     powerbar: Entity<Powerbar>,
+    /// The quick jump labels, drawn over everything so a label reaches any button on screen.
+    hints: Entity<HintLayer>,
     dialogs: Dialogs,
     /// The toasts, hung above the player bar or the fullscreen dock, whichever shell is up.
     toasts: Entity<ToastStack>,
@@ -426,6 +428,7 @@ impl Root {
             jam_invite: cx.new(JamInvite::new),
             theme_invite: cx.new(ThemeInvite::new),
             powerbar,
+            hints: cx.new(|cx| HintLayer::new(window, cx)),
             dialogs: Dialogs::new(cx),
             toasts: cx.new(ToastStack::new),
             background: None,
@@ -1367,7 +1370,8 @@ impl Render for Root {
             .children(self.dialogs.views())
             .child(self.jam_invite.clone())
             .child(self.theme_invite.clone())
-            .child(self.powerbar.clone());
+            .child(self.powerbar.clone())
+            .child(self.hints.clone());
 
         let root = div()
             .relative()
@@ -1433,6 +1437,13 @@ impl Render for Root {
             .on_action(
                 cx.listener(|this, _: &ToggleLyrics, _, cx| this.show_side(SideTab::Lyrics, cx)),
             )
+            .on_action(cx.listener(|this, _: &HintJump, window, cx| {
+                // The quick search covers the page, and its own keys pick its results.
+                if this.signing_in || this.powerbar.read(cx).is_open() {
+                    return;
+                }
+                this.hints.update(cx, |hints, cx| hints.open(window, cx));
+            }))
             .on_action(cx.listener(|this, _: &TogglePowerbar, window, cx| {
                 // The sign-in screen stands in for every shell, so there is nothing to search.
                 if !this.signing_in {

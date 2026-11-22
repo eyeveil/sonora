@@ -2,12 +2,14 @@ use std::time::Duration;
 
 use gpui::accesskit::Role;
 use gpui::prelude::*;
-use gpui::{AnyView, App, Context, Entity, FocusHandle, Pixels, Render, StyleRefinement};
-use gpui::{Window, deferred, div};
-use input::WORKSPACE_CONTEXT;
+use gpui::{AnyView, App, Context, Entity, FocusHandle, FontWeight, Pixels, Render};
+use gpui::{StyleRefinement, Window, deferred, div};
+use i18n::t;
+use input::{TypeDigit, WORKSPACE_CONTEXT};
 use state::{AppSettings, Playback, Queue, SideTab, Sonora};
 use ui::{
-    Activate, ActiveTheme as _, Deselect, Entrance, Remove, SelectNext, SelectPrevious, entering,
+    Activate, ActiveTheme as _, DIAL_WAIT, Deselect, Dial, Dialed, Entrance, Remove, SelectFirst,
+    SelectLast, SelectNext, SelectPageDown, SelectPageUp, SelectPrevious, Text, entering,
     shown_listing, veiled,
 };
 
@@ -35,6 +37,8 @@ pub(crate) struct Workspace {
     cached: bool,
     transition: Option<Entrance>,
     focus: FocusHandle,
+    /// The digits typed toward a row of the page's numbered list.
+    dial: Dial,
 }
 
 impl Workspace {
@@ -63,7 +67,69 @@ impl Workspace {
             cached: true,
             transition: None,
             focus: cx.focus_handle(),
+            dial: Dial::default(),
         }
+    }
+
+    /// A digit typed on the page: the row of the page's list with that number plays, at once
+    /// when no other digit could follow and after [`DIAL_WAIT`] otherwise, so 1 and 12 both
+    /// reach their rows on a list of twenty. A page without a list lets the digit go.
+    fn type_digit(&mut self, digit: &TypeDigit, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(list) = shown_listing(cx) else {
+            self.dial.clear();
+            cx.propagate();
+            return;
+        };
+        match self.dial.push(digit.0, list.row_count(cx)) {
+            Dialed::Now(number) => list.play_at(number - 1, window, cx),
+            Dialed::Wait(number) => {
+                let wait = cx.spawn_in(window, async move |this, cx| {
+                    cx.background_executor().timer(DIAL_WAIT).await;
+                    this.update_in(cx, |this, window, cx| {
+                        this.dial.clear();
+                        if let Some(list) = shown_listing(cx) {
+                            list.play_at(number - 1, window, cx);
+                        }
+                        cx.notify();
+                    })
+                    .ok();
+                });
+                self.dial.hold(wait);
+            }
+            Dialed::Nothing => {}
+        }
+        cx.notify();
+    }
+
+    /// The number waiting for another digit, shown over the foot of the page.
+    fn dial_badge(&self, cx: &App) -> Option<impl IntoElement + use<>> {
+        let typed = self.dial.pending()?.to_owned();
+        let theme = cx.theme();
+        let label = t!("dial-pending", number = typed.as_str());
+        Some(
+            div()
+                .absolute()
+                .left_0()
+                .right_0()
+                .bottom(theme.metrics.player_bar + theme.metrics.pad * 2.)
+                .flex()
+                .justify_center()
+                .child(
+                    div()
+                        .id("dial-pending")
+                        .role(Role::Status)
+                        .aria_label(label.clone())
+                        .px(theme.metrics.pad * 1.5)
+                        .py(theme.metrics.pad / 2.)
+                        .rounded(theme.radius)
+                        .bg(theme.primary)
+                        .text_color(theme.primary_foreground)
+                        .text_size(theme.text(Text::Body))
+                        .font_weight(FontWeight::BOLD)
+                        .shadow_md()
+                        .child(label),
+                ),
+        )
     }
 
     pub fn focus(&self, window: &mut Window, cx: &mut App) {
@@ -245,6 +311,31 @@ impl Render for Workspace {
                     cx.stop_propagation();
                 }
             })
+            .on_action(|_: &SelectFirst, window, cx| {
+                if let Some(table) = shown_listing(cx) {
+                    table.select_first(window, cx);
+                    cx.stop_propagation();
+                }
+            })
+            .on_action(|_: &SelectLast, window, cx| {
+                if let Some(table) = shown_listing(cx) {
+                    table.select_last(window, cx);
+                    cx.stop_propagation();
+                }
+            })
+            .on_action(|_: &SelectPageDown, window, cx| {
+                if let Some(table) = shown_listing(cx) {
+                    table.select_page(false, window, cx);
+                    cx.stop_propagation();
+                }
+            })
+            .on_action(|_: &SelectPageUp, window, cx| {
+                if let Some(table) = shown_listing(cx) {
+                    table.select_page(true, window, cx);
+                    cx.stop_propagation();
+                }
+            })
+            .on_action(cx.listener(Self::type_digit))
             .on_action(|_: &Deselect, _, cx| {
                 if let Some(table) = shown_listing(cx) {
                     table.deselect(cx);
@@ -357,5 +448,6 @@ impl Render for Workspace {
             // dialogs after the shell, so those still cover them.
             .child(deferred(self.notice.clone()))
             .child(self.card_menu.clone())
+            .children(self.dial_badge(cx))
     }
 }

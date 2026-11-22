@@ -8,7 +8,7 @@ use gpui::{
     MouseDownEvent, Pixels, Point, Render, ScrollHandle, SharedString, WeakEntity, Window, div,
 };
 use i18n::t;
-use input::SEARCH_CONTEXT;
+use input::{FocusField, SEARCH_CONTEXT};
 use music::{Album, Playlist, SavedArtist, Track};
 use router::{Destination, navigate};
 use ui::Input;
@@ -21,9 +21,9 @@ use state::{
 use ui::ActiveTheme as _;
 use ui::{
     Activate, Button, Card, Cascade, Deck, Deselect, Dismiss, Dropdown, InlineLink, InlineLinks,
-    Pinnable, Popup, Room, Scrollbar, Scroller, SelectLeft, SelectNext, SelectPrevious,
-    SelectRight, Separator, Submit, Text, Theme, Unfold, VAST, clock, eyebrow, scrolled, snapped,
-    tabular, vacant,
+    Pinnable, Popup, Room, Scrollbar, Scroller, SelectFirst, SelectLast, SelectLeft, SelectNext,
+    SelectPageDown, SelectPageUp, SelectPrevious, SelectRight, Separator, Submit, Text, Theme,
+    Unfold, VAST, clock, eyebrow, scrolled, snapped, tabular, vacant,
 };
 
 use crate::shared::cards;
@@ -736,6 +736,94 @@ impl SearchView {
         self.place(column, row - 1);
         window.focus(&self.focus, cx);
         self.reveal(window, cx);
+        cx.notify();
+    }
+
+    /// gg: the first row of the panel, or of the results column the keys are in.
+    fn select_first(&mut self, _: &SelectFirst, window: &mut Window, cx: &mut Context<Self>) {
+        self.jump_to(|_, _| 0, window, cx);
+    }
+
+    /// G: the last row of the panel, or of the results column the keys are in.
+    fn select_last(&mut self, _: &SelectLast, window: &mut Window, cx: &mut Context<Self>) {
+        self.jump_to(|_, last| last, window, cx);
+    }
+
+    /// Ctrl+D: half the visible rows down.
+    fn select_page_down(
+        &mut self,
+        _: &SelectPageDown,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let half = self.half_page(window, cx);
+        self.jump_to(move |row, last| (row + half).min(last), window, cx);
+    }
+
+    /// Ctrl+U: half the visible rows up.
+    fn select_page_up(&mut self, _: &SelectPageUp, window: &mut Window, cx: &mut Context<Self>) {
+        let half = self.half_page(window, cx);
+        self.jump_to(move |row, _| row.saturating_sub(half), window, cx);
+    }
+
+    /// Moves the keys to the row `to` picks from the current row and the last one, in the
+    /// panel while it shows and otherwise in the results column the keys are in, entering the
+    /// first column with results when they are in none.
+    fn jump_to(
+        &mut self,
+        to: impl Fn(usize, usize) -> usize,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.panel_open(window, cx) {
+            if let Some(last) = self.offers(cx).len().checked_sub(1) {
+                self.choose(Some(to(self.pick.unwrap_or(0), last)), cx);
+                cx.notify();
+            }
+            return;
+        }
+        let stacked = stacked(window, cx);
+        let (column, row) = match self.cursor {
+            Some(cursor) => cursor,
+            None => match self.first_filled(0, stacked, cx) {
+                Some(column) => (column, 0),
+                None => return,
+            },
+        };
+        let Some(last) = self.seats(kinds(column, stacked), cx).len().checked_sub(1) else {
+            return;
+        };
+        self.on_best = false;
+        self.place(column, to(row, last));
+        window.focus(&self.focus, cx);
+        self.reveal(window, cx);
+        cx.notify();
+    }
+
+    /// How many result rows half the visible list holds.
+    fn half_page(&self, window: &Window, cx: &App) -> usize {
+        let stacked = stacked(window, cx);
+        let column = self.cursor.map_or(0, |(column, _)| column);
+        let theme = *cx.theme();
+        let row = snapped(theme.metrics.list_row, window) + theme.font_size * ROW_GAP;
+        let visible = self
+            .bar(column, stacked)
+            .read(cx)
+            .scroll()
+            .bounds()
+            .size
+            .height;
+        ((visible / row / 2.).floor() as usize).max(1)
+    }
+
+    /// / or i on the results: back to the field to type, with the panel open, as Vim's / starts
+    /// a new search.
+    fn focus_field(&mut self, _: &FocusField, window: &mut Window, cx: &mut Context<Self>) {
+        self.cursor = None;
+        self.on_best = false;
+        self.hush = false;
+        self.dismissed = false;
+        self.input.update(cx, |input, cx| input.focus(window, cx));
         cx.notify();
     }
 
@@ -1718,6 +1806,11 @@ impl Render for SearchView {
             .track_focus(&self.focus)
             .on_action(cx.listener(Self::select_next))
             .on_action(cx.listener(Self::select_previous))
+            .on_action(cx.listener(Self::select_first))
+            .on_action(cx.listener(Self::select_last))
+            .on_action(cx.listener(Self::select_page_down))
+            .on_action(cx.listener(Self::select_page_up))
+            .on_action(cx.listener(Self::focus_field))
             .on_action(cx.listener(Self::select_left))
             .on_action(cx.listener(Self::select_right))
             .on_action(cx.listener(Self::activate_hit))

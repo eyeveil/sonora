@@ -115,6 +115,13 @@ home-collection-albums = Albums from your collection
 powerbar-title = Quick search
 powerbar-open = Open
 powerbar-song = Go to song
+powerbar-normal = Normal mode
+powerbar-move = Move
+powerbar-type = Type
+
+# quick jump labels and track numbers
+hints-title = Type a label to press it
+dial-pending = Track { $number }
 
 # search page
 search-placeholder = What do you want to listen to?
