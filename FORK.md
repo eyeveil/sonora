@@ -30,14 +30,15 @@ latest release (`upstream/stable`) with this fork's commits on top. The nebula r
   | `gh` `gs` `gr` | Home, search, recently played |
   | `gl` `ga` `gA` `gp` | Songs, albums, artists, playlists |
   | `?` | The list of every key, with your own keys for rebindable shortcuts |
-  | `/` | Filter the page (upstream's key) |
+  | `/` | Filter the page (upstream's key). Enter keeps the filter and goes back to the list |
 
   `l` keeps upstream's meaning on a page (the lyrics), so `h` and `l` move between columns only
   in the search results. In the search field and the quick search field, `Ctrl+J` and `Ctrl+N`
   step down and `Ctrl+P` steps up without leaving the field. `Ctrl+K` stays the quick search's
   toggle. In the quick search (`Cmd+K` or `Ctrl+K`), Escape leaves the field for normal mode,
   where the keys in the first table work, `q` or Escape closes it, and `o` opens the song's page.
-  A key you give a shortcut under Settings, Keybinds wins over the vim key.
+  A key you give a shortcut under Settings, Keybinds wins over the vim key. The page holds the
+  keyboard from launch, so these keys work before the first click.
 - **Quick jump.** `f`, or `Ctrl+;` (and `Cmd+;` on the Mac), puts a label on every button,
   card and track row on screen, the way Rex's fastcopy labels a pane. Labels are one letter
   while 26 or fewer targets show and two letters after that, home row first. Type a label to

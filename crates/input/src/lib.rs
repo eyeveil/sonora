@@ -81,6 +81,8 @@ pub const WORKSPACE_CONTEXT: &str = "Workspace";
 pub const COVER_VIEWER_CONTEXT: &str = "CoverViewer";
 pub const SEARCH_CONTEXT: &str = "Search";
 pub const POWERBAR_CONTEXT: &str = "Powerbar";
+/// The context of the title bar's page filter, the field `/` opens.
+pub const TOOLBAR_CONTEXT: &str = "Toolbar";
 
 /// Every key binding, in precedence order: GPUI prefers the deepest matching context and,
 /// within one, the binding registered last, so the macOS set at the end overrides the shared one.
@@ -158,6 +160,10 @@ fn vim(overrides: &BTreeMap<String, Vec<String>>) -> Vec<KeyBinding> {
     keys.bind("/", FocusField, Some(&quick_normal));
     keys.bind("q", Dismiss, Some(&quick_normal));
     keys.bind("escape", Dismiss, Some(&quick_normal));
+    // Enter in the field `/` opens keeps the filter and goes back to the list, as Vim's search
+    // does, so n and N walk the matches.
+    let filtering = format!("{TOOLBAR_CONTEXT} > {INPUT_CONTEXT}");
+    keys.bind("enter", Submit, Some(&filtering));
 
     let pages = Some(pages.as_str());
     keys.bind("shift-h", NavigateBack, pages);

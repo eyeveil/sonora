@@ -1170,6 +1170,20 @@ impl Render for Root {
                 .update(cx, |fullscreen, cx| fullscreen.focus(window, cx)),
             None => {}
         }
+        // Nothing holds the keyboard at launch, or after the focused element went away, and
+        // the shell's keys (space, the vim keys, quick jump) would wait for a click.
+        if window.focused(cx).is_none() && !show_sign_in {
+            match self.view {
+                RootView::Workspace => self
+                    .shells
+                    .workspace
+                    .update(cx, |workspace, cx| workspace.focus(window, cx)),
+                RootView::Fullscreen => self
+                    .shells
+                    .fullscreen
+                    .update(cx, |fullscreen, cx| fullscreen.focus(window, cx)),
+            }
+        }
         self.follow_os_fullscreen(window, cx);
 
         let options = match show_sign_in {

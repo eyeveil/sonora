@@ -649,6 +649,11 @@ mod tests {
                 assert_eq!(action_for(keys, names), None, "{keys} in {names:?}");
             }
         }
+        // Enter in the page filter goes back to the list, so n and N walk the matches.
+        assert_eq!(
+            action_for("enter", &[crate::TOOLBAR_CONTEXT, INPUT_CONTEXT]),
+            Some("form::Submit")
+        );
         // l keeps showing the lyrics on a page, and only the search results take it.
         assert_eq!(action_for("l", &page), Some("sonora::ToggleLyrics"));
     }

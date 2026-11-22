@@ -4,8 +4,9 @@ use gpui::{
     AnyElement, App, Context, Entity, FocusHandle, Focusable as _, Pixels, Render, SharedString,
     Window, div, px,
 };
+use input::TOOLBAR_CONTEXT;
 use ui::Button;
-use ui::{Dismiss, Input};
+use ui::{Dismiss, Input, Submit, shown_listing};
 
 const WIDEST: Pixels = px(280.);
 
@@ -167,7 +168,14 @@ impl Render for Toolbar {
             .items_center()
             .justify_end()
             .gap_1()
+            .key_context(TOOLBAR_CONTEXT)
             .on_action(cx.listener(|this, _: &Dismiss, window, cx| this.close(window, cx)))
+            .on_action(|_: &Submit, window, cx| {
+                // The filter stays; the list takes the keys, from its first match.
+                if let Some(list) = shown_listing(cx) {
+                    list.select_first(window, cx);
+                }
+            })
             .children(tools)
             .when(self.apply.is_some(), |this| {
                 this.when(self.open, |this| {
