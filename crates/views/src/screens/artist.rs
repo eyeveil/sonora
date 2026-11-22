@@ -1313,11 +1313,15 @@ impl Render for ArtistView {
             self.popular_columns = columns;
             self.popular_page = 0;
         }
-        if self.mode == Mode::List {
-            self.table.claim(cx);
-            let viewport = page::past_border(page::viewport(&scroll, inset, window, cx));
-            self.table
-                .update(cx, |table, _| table.set_viewport(viewport));
+        match self.mode == Mode::List {
+            true => {
+                self.table.claim(cx);
+                let viewport = page::past_border(page::viewport(&scroll, inset, window, cx));
+                self.table
+                    .update(cx, |table, _| table.set_viewport(viewport));
+            }
+            // The grid shows no list, so keys and digits must not reach the hidden one.
+            false => ui::release_listing(self.table.entity_id(), cx),
         }
 
         let picked = self.track_context.and_then(|(place, position)| {

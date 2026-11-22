@@ -389,7 +389,7 @@ impl TrackSource {
     }
 
     /// The label a row rests at, or `None` to let the cell count the rows.
-    fn number(&self, track: &Track, cx: &App) -> Option<SharedString> {
+    fn track_number(&self, track: &Track, cx: &App) -> Option<SharedString> {
         if track.track_number == 0 {
             return None;
         }
@@ -496,7 +496,7 @@ impl TrackSource {
             }
         };
 
-        let number = self.number(track, cx);
+        let number = self.track_number(track, cx);
 
         cells::index(cell, playing, playable, number, preload, press, cx)
     }
@@ -788,6 +788,11 @@ impl TableSource for TrackSource {
     fn row_key(&self, row: usize, cx: &App) -> Option<SharedString> {
         let id = self.provider.tracks(cx).get(row)?.id.clone()?;
         Some(id.into())
+    }
+
+    fn number(&self, row: usize, cx: &App) -> Option<SharedString> {
+        let tracks = self.provider.tracks(cx);
+        self.track_number(tracks.get(row)?, cx)
     }
 
     fn pin(&self, row: usize, cx: &App) -> Option<Pin> {

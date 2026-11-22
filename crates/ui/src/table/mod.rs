@@ -8,7 +8,7 @@ use std::rc::Rc;
 
 use gpui::prelude::*;
 use gpui::{
-    AbsoluteLength, AnyElement, App, Context, Corners, Div, DragMoveEvent, Empty, Entity,
+    AbsoluteLength, AnyElement, App, Context, Corners, Div, DragMoveEvent, Empty, Entity, EntityId,
     EventEmitter, FocusHandle, Focusable, Global, Interactivity, MouseButton, MouseDownEvent,
     MouseUpEvent, Pixels, Point, ScrollHandle, SharedString, Stateful, StyleRefinement, TextAlign,
     Window, actions, div, point, px, svg,
@@ -156,6 +156,12 @@ pub trait TableSource: 'static {
     /// A key naming the item on `row` across a rebuild, such as a track id. With one, an open
     /// context menu survives a rebuild that still holds every item it was opened on.
     fn row_key(&self, _row: usize, _cx: &App) -> Option<SharedString> {
+        None
+    }
+
+    /// The number the row's index cell shows, when it is not its place in the list, such as
+    /// a track's own number on a local album. Typed digits look rows up by it.
+    fn number(&self, _row: usize, _cx: &App) -> Option<SharedString> {
         None
     }
 
@@ -435,6 +441,17 @@ impl<S: TableSource> TableDelegate<S> {
 
     pub fn row_count(&self) -> usize {
         self.order.len()
+    }
+
+    /// The number each row shows, in display order: the source's own or the row's place.
+    pub fn numbers(&self, cx: &App) -> Vec<SharedString> {
+        (0..self.row_count())
+            .map(|display| {
+                self.source
+                    .number(self.row(display), cx)
+                    .unwrap_or_else(|| (display + 1).to_string().into())
+            })
+            .collect()
     }
 
     fn visible(&self) -> Vec<S::Field> {
@@ -1901,6 +1918,14 @@ pub fn clear_listing(cx: &mut App) {
     }
 }
 
+/// Drops the shown listing when it is the table `id`, for a page that stops showing its list.
+pub fn release_listing(id: EntityId, cx: &mut App) {
+    let shown = cx.try_global::<Shown>().and_then(|shown| shown.0.as_ref());
+    if shown.is_some_and(|listing| listing.entity_id() == id) {
+        clear_listing(cx);
+    }
+}
+
 pub fn shown_listing(cx: &App) -> Option<Box<dyn Listing>> {
     Some(cx.try_global::<Shown>()?.0.as_ref()?.boxed())
 }
@@ -1913,6 +1938,10 @@ pub trait Listing {
     fn sortables(&self, cx: &App) -> Vec<SortAxis>;
     fn cycle_sort(&self, column: &str, cx: &mut App);
     fn row_count(&self, cx: &App) -> usize;
+    /// The number each row shows, in display order, for digits typed on the page.
+    fn numbers(&self, cx: &App) -> Vec<SharedString>;
+    /// The table behind this listing, to tell whether the page still shows the same one.
+    fn entity_id(&self) -> EntityId;
     fn filters(&self, cx: &App) -> Vec<Filter>;
     fn filter(&self, change: FilterChange, cx: &mut App);
     fn filtering(&self, cx: &App) -> bool;
@@ -1983,6 +2012,14 @@ impl<S: TableSource> Listing for Entity<TableState<S>> {
 
     fn row_count(&self, cx: &App) -> usize {
         self.read(cx).delegate().row_count()
+    }
+
+    fn numbers(&self, cx: &App) -> Vec<SharedString> {
+        self.read(cx).delegate().numbers(cx)
+    }
+
+    fn entity_id(&self) -> EntityId {
+        Entity::entity_id(self)
     }
 
     fn filters(&self, cx: &App) -> Vec<Filter> {

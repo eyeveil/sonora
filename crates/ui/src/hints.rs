@@ -155,33 +155,40 @@ pub fn pick(labels: &[String], typed: &str) -> Pick {
     }
 }
 
-/// What a number typed on a numbered list of `count` rows does next.
-#[derive(Debug, PartialEq, Eq)]
+/// What a number typed on a numbered list does next.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Dialed {
-    /// Play row `n`, counted from 1, now: no further digit could name a row.
+    /// Play the row shown at this place, counted from 0, now: no longer number starts with it.
     Now(usize),
-    /// Row `n` is meant unless another digit follows within [`DIAL_WAIT`].
+    /// That row is meant unless another key follows within [`DIAL_WAIT`].
     Wait(usize),
-    /// No row has that number.
+    /// No row has this number yet, but a longer one starts with it, as `2.` does on a disc.
+    Partial,
+    /// No row has a number that starts with this.
     Nothing,
 }
 
-/// Decides what the digits typed so far mean on a list of `count` rows. On a list of five a 3
-/// plays at once, while on a list of forty a 3 waits, since 30 to 39 are rows too.
-pub fn dial(typed: &str, count: usize) -> Dialed {
-    let Ok(number) = typed.parse::<usize>() else {
-        return Dialed::Nothing;
-    };
-    if number == 0 || number > count {
+/// Decides what the keys typed so far mean, given the number each row shows in display order.
+/// On a list of five a 3 plays at once, while on a list of forty a 3 waits, since 30 to 39 are
+/// rows too. Matching what is shown rather than the row's place keeps a local album with a
+/// missing track, or a two-disc album numbered `2.3`, on the row the listener reads.
+pub fn dial(typed: &str, numbers: &[SharedString]) -> Dialed {
+    if typed.is_empty() {
         return Dialed::Nothing;
     }
-    match number.saturating_mul(10) > count {
-        true => Dialed::Now(number),
-        false => Dialed::Wait(number),
+    let exact = numbers.iter().position(|number| number.as_ref() == typed);
+    let longer = numbers
+        .iter()
+        .any(|number| number.len() > typed.len() && number.starts_with(typed));
+    match (exact, longer) {
+        (Some(at), false) => Dialed::Now(at),
+        (Some(at), true) => Dialed::Wait(at),
+        (None, true) => Dialed::Partial,
+        (None, false) => Dialed::Nothing,
     }
 }
 
-/// The digits typed on a numbered list so far, and the wait for one more.
+/// The keys typed on a numbered list so far, and the wait for one more.
 #[derive(Default)]
 pub struct Dial {
     typed: String,
@@ -189,27 +196,27 @@ pub struct Dial {
 }
 
 impl Dial {
-    /// The number shown while it waits for another digit.
+    /// The number shown while it waits for another key.
     pub fn pending(&self) -> Option<&str> {
         self.wait.as_ref().map(|_| self.typed.as_str())
     }
 
-    /// Adds `digit` and returns what the number now means. A digit that names no row starts a
+    /// Adds `key` and returns what the number now means. A key that leads to no row starts a
     /// new number with itself, so a slip does not need Escape.
-    pub fn push(&mut self, digit: char, count: usize) -> Dialed {
+    pub fn push(&mut self, key: char, numbers: &[SharedString]) -> Dialed {
         self.wait = None;
-        self.typed.push(digit);
-        let dialed = dial(&self.typed, count);
+        self.typed.push(key);
+        let dialed = dial(&self.typed, numbers);
         if dialed == Dialed::Nothing {
-            self.typed = digit.to_string();
-            return self.settle(dial(&self.typed, count));
+            self.typed = key.to_string();
+            return self.settle(dial(&self.typed, numbers));
         }
         self.settle(dialed)
     }
 
-    /// Keeps the digits only while the number waits.
+    /// Keeps the keys only while the number waits.
     fn settle(&mut self, dialed: Dialed) -> Dialed {
-        if !matches!(dialed, Dialed::Wait(_)) {
+        if !matches!(dialed, Dialed::Wait(_) | Dialed::Partial) {
             self.typed.clear();
         }
         dialed
@@ -220,7 +227,7 @@ impl Dial {
         self.wait = Some(wait);
     }
 
-    /// Forgets the digits and the wait, after the number played or the list changed.
+    /// Forgets the keys and the wait, after the number played or the list changed.
     pub fn clear(&mut self) {
         self.typed.clear();
         self.wait = None;
@@ -238,8 +245,9 @@ pub struct HintLayer {
     /// frame painted.
     labeled: Option<Rc<Vec<(String, Target)>>>,
     typed: String,
-    /// Whether any key of the label was typed with Shift, which picks the alternate action.
-    shifted: bool,
+    /// Whether each typed key of the label had Shift. Any one picks the alternate action, and
+    /// Backspace takes its key's Shift away with it, as fastcopy does.
+    shifted: Vec<bool>,
 }
 
 impl HintLayer {
@@ -257,7 +265,7 @@ impl HintLayer {
             open: false,
             labeled: None,
             typed: String::new(),
-            shifted: false,
+            shifted: Vec::new(),
         }
     }
 
@@ -276,7 +284,7 @@ impl HintLayer {
         self.open = true;
         self.labeled = None;
         self.typed.clear();
-        self.shifted = false;
+        self.shifted.clear();
         let marks = cx.default_global::<Marks>();
         marks.active = true;
         marks.seen.clear();
@@ -303,11 +311,18 @@ impl HintLayer {
     }
 
     /// Labels what the frame marked. It runs after the frame, so the labels show in the next.
-    fn label(&mut self, cx: &mut Context<Self>) {
+    fn label(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if !self.open || self.labeled.is_some() {
             return;
         }
-        let mut seen = std::mem::take(&mut cx.default_global::<Marks>().seen);
+        // The labels are fixed once given, so later frames stop marking.
+        let marks = cx.default_global::<Marks>();
+        marks.active = false;
+        let mut seen = std::mem::take(&mut marks.seen);
+        // Labels on nothing would only hold the keyboard until Escape.
+        if seen.is_empty() {
+            return self.close(window, cx);
+        }
         reading_order(&mut seen);
         let names = labels(seen.len());
         self.labeled = Some(Rc::new(names.into_iter().zip(seen).collect()));
@@ -321,6 +336,7 @@ impl HintLayer {
             "escape" => return self.close(window, cx),
             "backspace" => {
                 self.typed.pop();
+                self.shifted.pop();
                 cx.notify();
                 return;
             }
@@ -338,23 +354,23 @@ impl HintLayer {
         if !ALPHABET.contains(letter) {
             return;
         }
-        self.typed.push(letter);
-        self.shifted |= modifiers.shift;
         let Some(labeled) = self.labeled.clone() else {
-            self.typed.clear();
             return;
         };
+        self.typed.push(letter);
+        self.shifted.push(modifiers.shift);
         let names: Vec<String> = labeled.iter().map(|(name, _)| name.clone()).collect();
         match pick(&names, &self.typed) {
             Pick::Partial => cx.notify(),
             // A slip drops the key rather than the labels, as fastcopy does.
             Pick::Miss => {
                 self.typed.pop();
+                self.shifted.pop();
                 cx.notify();
             }
             Pick::Found(at) => {
                 let target = labeled[at].1.clone();
-                let jump = match self.shifted {
+                let jump = match self.shifted.contains(&true) {
                     true => target.alternate.unwrap_or(target.primary),
                     false => target.primary,
                 };
@@ -431,9 +447,9 @@ impl Render for HintLayer {
             .child(
                 canvas(
                     |_, _, _| {},
-                    move |_, _, _, cx| {
-                        cx.defer(move |cx| {
-                            me.update(cx, |this, cx| this.label(cx)).ok();
+                    move |_, _, window, cx| {
+                        window.defer(cx, move |window, cx| {
+                            me.update(cx, |this, cx| this.label(window, cx)).ok();
                         });
                     },
                 )
@@ -474,28 +490,45 @@ mod tests {
         assert_eq!(pick(&names, "m"), Pick::Miss);
     }
 
+    fn numbered(count: usize) -> Vec<SharedString> {
+        (1..=count).map(|n| n.to_string().into()).collect()
+    }
+
     #[test]
     fn dial_plays_at_once_when_no_digit_can_follow() {
-        assert_eq!(dial("3", 5), Dialed::Now(3));
-        assert_eq!(dial("1", 10), Dialed::Wait(1));
-        assert_eq!(dial("10", 10), Dialed::Now(10));
-        assert_eq!(dial("2", 10), Dialed::Now(2));
-        assert_eq!(dial("3", 40), Dialed::Wait(3));
-        assert_eq!(dial("0", 40), Dialed::Nothing);
-        assert_eq!(dial("6", 5), Dialed::Nothing);
+        assert_eq!(dial("3", &numbered(5)), Dialed::Now(2));
+        assert_eq!(dial("1", &numbered(10)), Dialed::Wait(0));
+        assert_eq!(dial("10", &numbered(10)), Dialed::Now(9));
+        assert_eq!(dial("2", &numbered(10)), Dialed::Now(1));
+        assert_eq!(dial("3", &numbered(40)), Dialed::Wait(2));
+        assert_eq!(dial("0", &numbered(40)), Dialed::Nothing);
+        assert_eq!(dial("6", &numbered(5)), Dialed::Nothing);
+    }
+
+    #[test]
+    fn dial_follows_the_number_shown_not_the_place() {
+        // A local album missing track 2, and a two-disc album.
+        let gaps: Vec<SharedString> = ["1", "3", "4"].map(Into::into).to_vec();
+        assert_eq!(dial("3", &gaps), Dialed::Now(1));
+        assert_eq!(dial("2", &gaps), Dialed::Nothing);
+        let discs: Vec<SharedString> = ["1.1", "1.2", "2.1", "2.2"].map(Into::into).to_vec();
+        assert_eq!(dial("2", &discs), Dialed::Partial);
+        assert_eq!(dial("2.", &discs), Dialed::Partial);
+        assert_eq!(dial("2.2", &discs), Dialed::Now(3));
     }
 
     #[test]
     fn a_digit_past_the_list_starts_over() {
+        let list = numbered(15);
         let mut dial = Dial::default();
-        assert_eq!(dial.push('1', 15), Dialed::Wait(1));
+        assert_eq!(dial.push('1', &list), Dialed::Wait(0));
         dial.hold(Task::ready(()));
         assert_eq!(dial.pending(), Some("1"));
         // 19 is past a list of 15, so the 9 is a number of its own.
-        assert_eq!(dial.push('9', 15), Dialed::Now(9));
+        assert_eq!(dial.push('9', &list), Dialed::Now(8));
         assert_eq!(dial.pending(), None);
-        assert_eq!(dial.push('1', 15), Dialed::Wait(1));
-        assert_eq!(dial.push('2', 15), Dialed::Now(12));
+        assert_eq!(dial.push('1', &list), Dialed::Wait(0));
+        assert_eq!(dial.push('2', &list), Dialed::Now(11));
     }
 
     #[test]

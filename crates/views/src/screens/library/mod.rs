@@ -1272,6 +1272,9 @@ impl Render for LibraryView {
                 (false, false) => Self::viewport(&scroll, Pixels::ZERO, window, cx),
             };
             self.table(self.section).set_viewport(viewport, cx);
+        } else {
+            // The grid shows no list, so keys and digits must not reach the hidden one.
+            ui::release_listing(self.table(self.section).entity_id(), cx);
         }
 
         let context_menu = self.context_menu.clone().map(|(target, position)| {

@@ -106,3 +106,41 @@ async fn a_slip_keeps_the_labels_and_escape_presses_nothing(cx: &mut TestAppCont
     assert!(!layer_open(&page, window));
     assert!(log.borrow().is_empty());
 }
+
+#[gpui::test]
+async fn a_slip_takes_its_shift_away(cx: &mut TestAppContext) {
+    let (page, window, log) = open_page(cx);
+    show_labels(&page, window);
+    // A shifted slip that names no label is dropped with its Shift, so the card opens.
+    window.simulate_keystrokes("shift-m d");
+    assert_eq!(*log.borrow(), ["card-open"]);
+}
+
+/// A page with nothing to press.
+struct Blank {
+    layer: Entity<HintLayer>,
+}
+
+impl Render for Blank {
+    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+        div().size_full().child(self.layer.clone())
+    }
+}
+
+#[gpui::test]
+async fn labels_on_nothing_close_at_once(cx: &mut TestAppContext) {
+    cx.update(|cx| cx.set_global(Theme::dark()));
+    let (blank, window) = cx.add_window_view(|window, cx| Blank {
+        layer: cx.new(|cx| HintLayer::new(window, cx)),
+    });
+    window.run_until_parked();
+    window.update(|window, cx| {
+        let layer = blank.read(cx).layer.clone();
+        layer.update(cx, |layer, cx| layer.open(window, cx));
+    });
+    window.run_until_parked();
+    assert!(
+        !window.update(|_, cx| blank.read(cx).layer.read(cx).is_open()),
+        "the labels kept the keyboard with nothing to press"
+    );
+}

@@ -152,7 +152,8 @@ pub use table::{
     Activate, Cell, ColumnSpec, Deselect, Layout, Listing, MoveRowDown, MoveRowUp, Pending,
     ROW_GROUP, Remove, RowMoves, SelectFirst, SelectLast, SelectNext, SelectPageDown, SelectPageUp,
     SelectPrevious, Sort, Sorting, TABLE_CONTEXT, Table, TableDelegate, TableEvent, TableSource,
-    TableState, Toggle, Viewport, Width, clear_listing, rank, show_listing, shown_listing, table,
+    TableState, Toggle, Viewport, Width, clear_listing, rank, release_listing, show_listing,
+    shown_listing, table,
 };
 pub use tabs::{TabBar, Tabs};
 pub use theme::{

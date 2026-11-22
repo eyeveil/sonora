@@ -71,24 +71,28 @@ impl Workspace {
         }
     }
 
-    /// A digit typed on the page: the row of the page's list with that number plays, at once
-    /// when no other digit could follow and after [`DIAL_WAIT`] otherwise, so 1 and 12 both
-    /// reach their rows on a list of twenty. A page without a list lets the digit go.
+    /// A digit typed on the page: the row of the page's list showing that number plays, at
+    /// once when no longer number starts with it and after [`DIAL_WAIT`] otherwise, so 1 and
+    /// 12 both reach their rows on a list of twenty. A page without a list lets the digit go.
     fn type_digit(&mut self, digit: &TypeDigit, window: &mut Window, cx: &mut Context<Self>) {
         let Some(list) = shown_listing(cx) else {
             self.dial.clear();
             cx.propagate();
             return;
         };
-        match self.dial.push(digit.0, list.row_count(cx)) {
-            Dialed::Now(number) => list.play_at(number - 1, window, cx),
-            Dialed::Wait(number) => {
+        let numbers = list.numbers(cx);
+        match self.dial.push(digit.0, &numbers) {
+            Dialed::Now(display) => list.play_at(display, window, cx),
+            dialed @ (Dialed::Wait(_) | Dialed::Partial) => {
+                // The number belongs to this list, so a page left meanwhile plays nothing.
+                let table = list.entity_id();
                 let wait = cx.spawn_in(window, async move |this, cx| {
                     cx.background_executor().timer(DIAL_WAIT).await;
                     this.update_in(cx, |this, window, cx| {
                         this.dial.clear();
-                        if let Some(list) = shown_listing(cx) {
-                            list.play_at(number - 1, window, cx);
+                        let shown = shown_listing(cx).filter(|list| list.entity_id() == table);
+                        if let (Dialed::Wait(display), Some(list)) = (dialed, shown) {
+                            list.play_at(display, window, cx);
                         }
                         cx.notify();
                     })

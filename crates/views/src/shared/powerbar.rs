@@ -734,6 +734,9 @@ impl Render for Powerbar {
             .when(self.open, |this| {
                 this.key_context(POWERBAR_CONTEXT)
                     .track_focus(&self.normal)
+                    // Only Escape enters normal mode. A click on the panel's padding would
+                    // otherwise focus it, and the next letter would move instead of type.
+                    .on_mouse_down(MouseButton::Left, |_, window, _| window.prevent_default())
                     .on_action(cx.listener(Self::select_next))
                     .on_action(cx.listener(Self::select_previous))
                     .on_action(cx.listener(Self::select_first))
