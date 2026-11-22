@@ -1,12 +1,13 @@
 use std::collections::BTreeMap;
 
-use gpui::{KeyBinding, actions};
+use gpui::{Action, KeyBinding, actions};
 use ui::{
     Activate, Backspace, BackspaceToStart, BackspaceWord, Copy, Cut, Delete, DeleteToEnd,
     DeleteWord, Deselect, Dismiss, End, FORM_CONTEXT, Home, INPUT_CONTEXT, Left, MENU_CONTEXT,
     MoveRowDown, MoveRowUp, NextField, Paste, PreviousField, Remove, Right, SelectAll, SelectEnd,
-    SelectHome, SelectLeft, SelectNext, SelectPrevious, SelectRight, SelectWordLeft,
-    SelectWordRight, ShowCharacterPalette, Space, Submit, TABLE_CONTEXT, WordLeft, WordRight,
+    SelectFirst, SelectHome, SelectLast, SelectLeft, SelectNext, SelectPageDown, SelectPageUp,
+    SelectPrevious, SelectRight, SelectWordLeft, SelectWordRight, ShowCharacterPalette, Space,
+    Submit, TABLE_CONTEXT, WordLeft, WordRight,
 };
 
 mod shortcuts;
@@ -55,9 +56,16 @@ actions!(
         Redo,
         ZoomIn,
         ZoomOut,
-        ZoomReset
+        ZoomReset,
+        HintJump,
+        FocusField
     ]
 );
+
+/// A digit typed away from text, which plays that row of the numbered list on the page.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Action)]
+#[action(namespace = sonora, no_json)]
+pub struct TypeDigit(pub char);
 
 pub const WORKSPACE_CONTEXT: &str = "Workspace";
 /// The context of the cover viewer, open above an album, playlist or artist page.
@@ -78,6 +86,76 @@ pub fn bindings(overrides: &BTreeMap<String, Vec<String>>) -> Vec<KeyBinding> {
     if cfg!(target_os = "macos") {
         bindings.extend(macos());
     }
+    bindings.extend(vim());
+    bindings
+}
+
+/// Vim's motions on every list: j and k step, gg and G jump to the ends, Ctrl+D and Ctrl+U
+/// move half a page. In the search field and the quick search, Ctrl+J, Ctrl+N, Ctrl+K and
+/// Ctrl+P step through the results without leaving the field, as fzf and Telescope do. The
+/// search results take h and l for the columns and / or i to type again. The quick search has
+/// a normal mode of its own: Escape leaves the field for the list, where these keys work,
+/// and i or / go back to typing. They come last, so they win over the Mac's Emacs keys in a
+/// field of the search page or the quick search.
+fn vim() -> Vec<KeyBinding> {
+    let table = Some(TABLE_CONTEXT);
+    let browsing = shortcuts::browsing_context();
+    let results = format!("{SEARCH_CONTEXT} && !{INPUT_CONTEXT}");
+    let typing = format!("{SEARCH_CONTEXT} > {INPUT_CONTEXT}");
+    let quick_typing = format!("{POWERBAR_CONTEXT} > {INPUT_CONTEXT}");
+    let quick_normal = format!("{POWERBAR_CONTEXT} && !{INPUT_CONTEXT}");
+    let digits =
+        format!("{WORKSPACE_CONTEXT} && !{INPUT_CONTEXT} && !{MENU_CONTEXT} && !{FORM_CONTEXT}");
+
+    let mut bindings = Vec::new();
+    for context in [
+        table,
+        Some(browsing.as_str()),
+        Some(&results),
+        Some(&quick_normal),
+    ] {
+        bindings.extend([
+            KeyBinding::new("j", SelectNext, context),
+            KeyBinding::new("k", SelectPrevious, context),
+            KeyBinding::new("g g", SelectFirst, context),
+            KeyBinding::new("shift-g", SelectLast, context),
+            KeyBinding::new("home", SelectFirst, context),
+            KeyBinding::new("end", SelectLast, context),
+            KeyBinding::new("ctrl-d", SelectPageDown, context),
+            KeyBinding::new("ctrl-u", SelectPageUp, context),
+            KeyBinding::new("pagedown", SelectPageDown, context),
+            KeyBinding::new("pageup", SelectPageUp, context),
+        ]);
+    }
+    for context in [Some(typing.as_str()), Some(&quick_typing)] {
+        bindings.extend([
+            KeyBinding::new("ctrl-j", SelectNext, context),
+            KeyBinding::new("ctrl-n", SelectNext, context),
+            KeyBinding::new("ctrl-k", SelectPrevious, context),
+            KeyBinding::new("ctrl-p", SelectPrevious, context),
+        ]);
+    }
+    bindings.extend([
+        KeyBinding::new("h", SelectLeft, Some(&results)),
+        KeyBinding::new("l", SelectRight, Some(&results)),
+        KeyBinding::new("o", Activate, Some(&results)),
+        KeyBinding::new("/", FocusField, Some(&results)),
+        KeyBinding::new("i", FocusField, Some(&results)),
+        KeyBinding::new("a", FocusField, Some(&results)),
+        KeyBinding::new("o", Activate, table),
+        KeyBinding::new("enter", Submit, Some(&quick_normal)),
+        KeyBinding::new("o", PowerbarDetails, Some(&quick_normal)),
+        KeyBinding::new("i", FocusField, Some(&quick_normal)),
+        KeyBinding::new("a", FocusField, Some(&quick_normal)),
+        KeyBinding::new("/", FocusField, Some(&quick_normal)),
+        KeyBinding::new("q", Dismiss, Some(&quick_normal)),
+        KeyBinding::new("escape", Dismiss, Some(&quick_normal)),
+    ]);
+    bindings.extend(
+        "0123456789"
+            .chars()
+            .map(|digit| KeyBinding::new(&digit.to_string(), TypeDigit(digit), Some(&digits))),
+    );
     bindings
 }
 
@@ -90,9 +168,7 @@ fn shared() -> Vec<KeyBinding> {
     let form = Some(FORM_CONTEXT);
     let menu = Some(MENU_CONTEXT);
     let search = Some(SEARCH_CONTEXT);
-    let browsing = format!(
-        "{WORKSPACE_CONTEXT} && !{INPUT_CONTEXT} && !{MENU_CONTEXT} && !{FORM_CONTEXT} && !{TABLE_CONTEXT} && !{SEARCH_CONTEXT}"
-    );
+    let browsing = shortcuts::browsing_context();
     let results = format!("{SEARCH_CONTEXT} && !{INPUT_CONTEXT}");
     let typing = format!("{SEARCH_CONTEXT} > {INPUT_CONTEXT}");
 

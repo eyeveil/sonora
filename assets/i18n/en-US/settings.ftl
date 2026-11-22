@@ -52,6 +52,7 @@ keybind-navigate-back = Go back
 keybind-navigate-forward = Go forward
 keybind-open-search = Search
 keybind-toggle-powerbar = Quick search
+keybind-hint-jump = Quick jump
 keybind-open-filter = Filter the page
 keybind-open-settings = Open settings
 keybind-refresh = Refresh

@@ -8,11 +8,11 @@ use gpui::{Action, KeyBinding, Keystroke};
 use ui::{FORM_CONTEXT, INPUT_CONTEXT, MENU_CONTEXT, TABLE_CONTEXT};
 
 use crate::{
-    DecreaseFontSize, IncreaseFontSize, NavigateBack, NavigateForward, OpenFilter, OpenSearch,
-    OpenSettings, POWERBAR_CONTEXT, Refresh, ResetFontSize, SEARCH_CONTEXT, SeekBack, SeekForward,
-    SongNext, SongPrevious, ToggleFullscreen, ToggleLyrics, TogglePlayback, TogglePowerbar,
-    ToggleQueue, ToggleRepeat, ToggleShuffle, ToggleWindowFullscreen, VolumeDown, VolumeUp,
-    WORKSPACE_CONTEXT,
+    DecreaseFontSize, HintJump, IncreaseFontSize, NavigateBack, NavigateForward, OpenFilter,
+    OpenSearch, OpenSettings, POWERBAR_CONTEXT, Refresh, ResetFontSize, SEARCH_CONTEXT, SeekBack,
+    SeekForward, SongNext, SongPrevious, ToggleFullscreen, ToggleLyrics, TogglePlayback,
+    TogglePowerbar, ToggleQueue, ToggleRepeat, ToggleShuffle, ToggleWindowFullscreen, VolumeDown,
+    VolumeUp, WORKSPACE_CONTEXT,
 };
 
 /// The modifiers that make a keystroke a command rather than typing. A key pressed without any
@@ -262,12 +262,21 @@ const SHORTCUTS: &[Shortcut] = &[
         mac: &[],
     },
     Shortcut {
+        id: "hint-jump",
+        key: "keybind-hint-jump",
+        section: Section::Navigation,
+        scope: Scope::Anywhere,
+        bind: bind::<HintJump>,
+        defaults: &["f", "ctrl-;"],
+        mac: &["cmd-;"],
+    },
+    Shortcut {
         id: "toggle-fullscreen",
         key: "keybind-toggle-fullscreen",
         section: Section::View,
         scope: Scope::AwayFromText,
         bind: bind::<ToggleFullscreen>,
-        defaults: &["f"],
+        defaults: &["shift-f"],
         mac: &[],
     },
     Shortcut {
@@ -468,7 +477,7 @@ fn bind<A: Action + Default>(keystroke: &str, context: Option<&str>) -> KeyBindi
 
 /// The context of a [`Scope::Browsing`] shortcut: the workspace with no text field, list, menu,
 /// form, search or powerbar in the focus path.
-fn browsing_context() -> String {
+pub(crate) fn browsing_context() -> String {
     format!(
         "{WORKSPACE_CONTEXT} && !{INPUT_CONTEXT} && !{MENU_CONTEXT} && !{FORM_CONTEXT} && !{TABLE_CONTEXT} && !{SEARCH_CONTEXT} && !{POWERBAR_CONTEXT}"
     )
@@ -481,6 +490,7 @@ mod tests {
     use gpui::KeyContext;
 
     use super::*;
+    use crate::COVER_VIEWER_CONTEXT;
 
     /// The binding the default keymap gives action `A`.
     fn binding_of<A: Action>() -> KeyBinding {
@@ -555,6 +565,87 @@ mod tests {
             let predicate = binding.predicate().expect("bound in a context");
             assert!(predicate.eval(&stack(&["Workspace"])));
         }
+    }
+
+    /// The action `keys` dispatch with focus at the end of `names`, as the window would pick it.
+    fn action_for(keys: &str, names: &[&str]) -> Option<&'static str> {
+        let keymap = gpui::Keymap::new(crate::bindings(&BTreeMap::new()));
+        let input: Vec<gpui::Keystroke> = keys
+            .split(' ')
+            .map(|key| gpui::Keystroke::parse(key).expect("a valid keystroke"))
+            .collect();
+        let (bindings, _) = keymap.bindings_for_input(&input, &stack(names));
+        bindings.first().map(|binding| binding.action().name())
+    }
+
+    #[test]
+    fn vim_motions_walk_lists_search_and_the_quick_search() {
+        let list = ["Workspace", TABLE_CONTEXT];
+        let page = ["Workspace"];
+        let results = ["Workspace", SEARCH_CONTEXT];
+        let quick = [POWERBAR_CONTEXT];
+        for names in [&list[..], &page[..], &results[..], &quick[..]] {
+            assert_eq!(action_for("j", names), Some("table::SelectNext"));
+            assert_eq!(action_for("k", names), Some("table::SelectPrevious"));
+            assert_eq!(action_for("g g", names), Some("table::SelectFirst"));
+            assert_eq!(action_for("shift-g", names), Some("table::SelectLast"));
+            assert_eq!(action_for("ctrl-d", names), Some("table::SelectPageDown"));
+            assert_eq!(action_for("ctrl-u", names), Some("table::SelectPageUp"));
+        }
+        assert_eq!(action_for("h", &results), Some("input::SelectLeft"));
+        assert_eq!(action_for("l", &results), Some("input::SelectRight"));
+        assert_eq!(action_for("/", &results), Some("sonora::FocusField"));
+        assert_eq!(action_for("i", &quick), Some("sonora::FocusField"));
+        assert_eq!(action_for("q", &quick), Some("input::Dismiss"));
+    }
+
+    #[test]
+    fn fields_keep_their_letters_but_step_with_control() {
+        let field = ["Workspace", SEARCH_CONTEXT, INPUT_CONTEXT];
+        let quick = [POWERBAR_CONTEXT, INPUT_CONTEXT];
+        for names in [&field[..], &quick[..]] {
+            assert_eq!(action_for("j", names), None);
+            assert_eq!(action_for("ctrl-j", names), Some("table::SelectNext"));
+            assert_eq!(action_for("ctrl-n", names), Some("table::SelectNext"));
+            // Ctrl+K deletes to the end of a Mac field elsewhere, but steps up here.
+            assert_eq!(action_for("ctrl-k", names), Some("table::SelectPrevious"));
+            assert_eq!(action_for("ctrl-p", names), Some("table::SelectPrevious"));
+        }
+        // Ctrl+K still opens the quick search everywhere else.
+        assert_eq!(
+            action_for("ctrl-k", &["Workspace"]),
+            Some("sonora::TogglePowerbar")
+        );
+    }
+
+    #[test]
+    fn digits_play_rows_but_never_type_into_fields() {
+        assert_eq!(action_for("3", &["Workspace"]), Some("sonora::TypeDigit"));
+        assert_eq!(
+            action_for("3", &["Workspace", TABLE_CONTEXT]),
+            Some("sonora::TypeDigit")
+        );
+        assert_eq!(action_for("3", &["Workspace", INPUT_CONTEXT]), None);
+        assert_eq!(action_for("3", &["Workspace", MENU_CONTEXT]), None);
+        assert_eq!(action_for("3", &["Workspace", FORM_CONTEXT]), None);
+        assert_eq!(
+            action_for("0", &["Workspace", COVER_VIEWER_CONTEXT]),
+            Some("sonora::ZoomReset")
+        );
+    }
+
+    #[test]
+    fn f_labels_the_page_and_shift_f_goes_fullscreen() {
+        assert_eq!(action_for("f", &["Workspace"]), Some("sonora::HintJump"));
+        assert_eq!(action_for("f", &["Workspace", INPUT_CONTEXT]), None);
+        assert_eq!(
+            action_for("ctrl-;", &["Workspace", INPUT_CONTEXT]),
+            Some("sonora::HintJump")
+        );
+        assert_eq!(
+            action_for("shift-f", &["Workspace"]),
+            Some("sonora::ToggleFullscreen")
+        );
     }
 
     #[test]
