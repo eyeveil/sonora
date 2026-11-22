@@ -223,6 +223,14 @@ impl Root {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
+        // Focus left on something no longer drawn, such as a dialog that closed, reaches no
+        // handler, so the page's keys would wait for a click.
+        cx.on_focus_lost(window, |this, window, cx| {
+            if !this.signing_in {
+                this.focus_shell(window, cx);
+            }
+        })
+        .detach();
         cx.observe(&session, |this, session, cx| {
             if matches!(session.read(cx).state(), SessionState::SignedOut) {
                 this.navigation_transition = None;
@@ -679,6 +687,20 @@ impl Root {
     }
 
     /// Opens settings on the page they last showed, inside the workspace.
+    /// Hands the keyboard to the shell that is up, for when nothing else holds it.
+    fn focus_shell(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        match self.view {
+            RootView::Workspace => self
+                .shells
+                .workspace
+                .update(cx, |workspace, cx| workspace.focus(window, cx)),
+            RootView::Fullscreen => self
+                .shells
+                .fullscreen
+                .update(cx, |fullscreen, cx| fullscreen.focus(window, cx)),
+        }
+    }
+
     fn open_settings(&mut self, cx: &mut Context<Self>) {
         router::open_settings(cx);
     }
@@ -1170,19 +1192,10 @@ impl Render for Root {
                 .update(cx, |fullscreen, cx| fullscreen.focus(window, cx)),
             None => {}
         }
-        // Nothing holds the keyboard at launch, or after the focused element went away, and
-        // the shell's keys (space, the vim keys, quick jump) would wait for a click.
+        // Nothing holds the keyboard at launch, and the shell's keys (space, the vim keys,
+        // quick jump) would wait for a click.
         if window.focused(cx).is_none() && !show_sign_in {
-            match self.view {
-                RootView::Workspace => self
-                    .shells
-                    .workspace
-                    .update(cx, |workspace, cx| workspace.focus(window, cx)),
-                RootView::Fullscreen => self
-                    .shells
-                    .fullscreen
-                    .update(cx, |fullscreen, cx| fullscreen.focus(window, cx)),
-            }
+            self.focus_shell(window, cx);
         }
         self.follow_os_fullscreen(window, cx);
 
@@ -1488,6 +1501,11 @@ impl Render for Root {
                 navigate(Destination::Library(LibraryTab::Playlists), cx)
             })
             .on_action(cx.listener(|this, _: &TogglePowerbar, window, cx| {
+                // The quick search takes the keyboard, so the key list under it would be stuck.
+                if this.keys_help.read(cx).is_open() {
+                    this.keys_help
+                        .update(cx, |help, cx| help.toggle(window, cx));
+                }
                 // The sign-in screen stands in for every shell, so there is nothing to search.
                 if !this.signing_in {
                     Powerbar::toggle(window, cx);

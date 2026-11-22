@@ -12,9 +12,9 @@ use std::time::Duration;
 use gpui::accesskit::Role;
 use gpui::prelude::*;
 use gpui::{
-    App, Bounds, ClickEvent, Context, FocusHandle, Focusable, FontWeight, Global, KeyDownEvent,
-    KeyboardButton, KeyboardClickEvent, Pixels, SharedString, Task, Window, anchored, canvas,
-    deferred, div, point, px,
+    App, Bounds, ClickEvent, Context, EntityId, FocusHandle, Focusable, FontWeight, Global,
+    KeyDownEvent, KeyboardButton, KeyboardClickEvent, Pixels, SharedString, Task, Window, anchored,
+    canvas, deferred, div, point, px,
 };
 use i18n::t;
 
@@ -193,6 +193,8 @@ pub fn dial(typed: &str, numbers: &[SharedString]) -> Dialed {
 pub struct Dial {
     typed: String,
     wait: Option<Task<()>>,
+    /// The list the keys were typed on. Keys typed on another list start a new number.
+    list: Option<EntityId>,
 }
 
 impl Dial {
@@ -203,7 +205,11 @@ impl Dial {
 
     /// Adds `key` and returns what the number now means. A key that leads to no row starts a
     /// new number with itself, so a slip does not need Escape.
-    pub fn push(&mut self, key: char, numbers: &[SharedString]) -> Dialed {
+    pub fn push(&mut self, key: char, list: EntityId, numbers: &[SharedString]) -> Dialed {
+        if self.list != Some(list) {
+            self.typed.clear();
+            self.list = Some(list);
+        }
         self.wait = None;
         self.typed.push(key);
         let dialed = dial(&self.typed, numbers);
@@ -518,17 +524,25 @@ mod tests {
     }
 
     #[test]
+    fn keys_on_another_list_start_a_new_number() {
+        let list = numbered(15);
+        let mut dial = Dial::default();
+        assert_eq!(dial.push('1', EntityId::from(1u64), &list), Dialed::Wait(0));
+        assert_eq!(dial.push('2', EntityId::from(2u64), &list), Dialed::Now(1));
+    }
+
+    #[test]
     fn a_digit_past_the_list_starts_over() {
         let list = numbered(15);
         let mut dial = Dial::default();
-        assert_eq!(dial.push('1', &list), Dialed::Wait(0));
+        assert_eq!(dial.push('1', EntityId::from(1u64), &list), Dialed::Wait(0));
         dial.hold(Task::ready(()));
         assert_eq!(dial.pending(), Some("1"));
         // 19 is past a list of 15, so the 9 is a number of its own.
-        assert_eq!(dial.push('9', &list), Dialed::Now(8));
+        assert_eq!(dial.push('9', EntityId::from(1u64), &list), Dialed::Now(8));
         assert_eq!(dial.pending(), None);
-        assert_eq!(dial.push('1', &list), Dialed::Wait(0));
-        assert_eq!(dial.push('2', &list), Dialed::Now(11));
+        assert_eq!(dial.push('1', EntityId::from(1u64), &list), Dialed::Wait(0));
+        assert_eq!(dial.push('2', EntityId::from(1u64), &list), Dialed::Now(11));
     }
 
     #[test]

@@ -668,6 +668,18 @@ mod tests {
             bindings.first().map(|binding| binding.action().name()),
             Some("sonora::ToggleShuffle")
         );
+        // A sequence the user chose leaves the other g sequences alone.
+        let overrides = BTreeMap::from([("toggle-shuffle".to_owned(), vec!["g x".to_owned()])]);
+        let keymap = gpui::Keymap::new(crate::bindings(&overrides));
+        let input = [
+            gpui::Keystroke::parse("g").unwrap(),
+            gpui::Keystroke::parse("g").unwrap(),
+        ];
+        let (bindings, _) = keymap.bindings_for_input(&input, &stack(&["Workspace"]));
+        assert_eq!(
+            bindings.first().map(|binding| binding.action().name()),
+            Some("table::SelectFirst")
+        );
     }
 
     #[test]

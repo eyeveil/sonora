@@ -188,10 +188,11 @@ fn vim(overrides: &BTreeMap<String, Vec<String>>) -> Vec<KeyBinding> {
     keys.bindings
 }
 
-/// The vim bindings being gathered, less any whose first key the user gave a shortcut, so a
-/// key chosen under Settings, Keybinds is never quietly taken over.
+/// The vim bindings being gathered, less any the user's own keys under Settings, Keybinds
+/// would collide with, so a key chosen there is never quietly taken over. A single key the
+/// user bound takes every vim binding that starts with it; a sequence takes only itself.
 struct VimKeys {
-    taken: Vec<gpui::Keystroke>,
+    taken: Vec<Vec<gpui::Keystroke>>,
     bindings: Vec<KeyBinding>,
 }
 
@@ -200,8 +201,7 @@ impl VimKeys {
         let taken = overrides
             .values()
             .flatten()
-            .filter_map(|keys| keys.split(' ').next())
-            .filter_map(|key| gpui::Keystroke::parse(key).ok())
+            .filter_map(|keys| parse(keys))
             .collect();
         Self {
             taken,
@@ -210,15 +210,24 @@ impl VimKeys {
     }
 
     fn bind<A: gpui::Action>(&mut self, keys: &str, action: A, context: Option<&str>) {
-        let first = keys
-            .split(' ')
-            .next()
-            .and_then(|key| gpui::Keystroke::parse(key).ok());
-        if first.is_some_and(|first| self.taken.contains(&first)) {
+        let Some(ours) = parse(keys) else {
             return;
+        };
+        let collides = self.taken.iter().any(|theirs| match theirs.len() {
+            1 => ours.first() == theirs.first(),
+            _ => *theirs == ours,
+        });
+        if !collides {
+            self.bindings.push(KeyBinding::new(keys, action, context));
         }
-        self.bindings.push(KeyBinding::new(keys, action, context));
     }
+}
+
+/// The keystrokes of a binding spelled like `g shift-a`, or `None` if one does not parse.
+fn parse(keys: &str) -> Option<Vec<gpui::Keystroke>> {
+    keys.split(' ')
+        .map(|key| gpui::Keystroke::parse(key).ok())
+        .collect()
 }
 
 /// The fixed bindings every platform gets: quitting, equalizer undo, lists, menus, search, forms

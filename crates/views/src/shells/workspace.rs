@@ -81,7 +81,7 @@ impl Workspace {
             return;
         };
         let numbers = list.numbers(cx);
-        match self.dial.push(digit.0, &numbers) {
+        match self.dial.push(digit.0, list.entity_id(), &numbers) {
             Dialed::Now(display) => list.play_at(display, window, cx),
             dialed @ (Dialed::Wait(_) | Dialed::Partial) => {
                 // The number belongs to this list, so a page left meanwhile plays nothing.

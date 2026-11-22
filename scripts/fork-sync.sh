@@ -20,6 +20,12 @@ if git merge-base --is-ancestor HEAD origin/custom; then
   git merge --ff-only origin/custom
 fi
 
+# A commit pushed to origin from elsewhere must not be dropped by the rebase and the force-push.
+if [ -n "$(git log --cherry-pick --right-only --oneline HEAD...origin/custom)" ]; then
+  echo "fork-sync: origin/custom has commits local custom lacks; merge or rebase them in first" >&2
+  exit 1
+fi
+
 if ! git rebase "$base"; then
   echo "fork-sync: resolve the conflicts, run 'git rebase --continue', then run this again" >&2
   exit 1

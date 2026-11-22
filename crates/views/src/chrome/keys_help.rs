@@ -134,6 +134,7 @@ impl Render for KeysHelp {
             .close_button()
             .on_dismiss(cx.listener(|this, _, window, cx| this.close(window, cx)));
         for (group, (heading, rows)) in GROUPS.iter().enumerate() {
+            let count = rows.len();
             let rows = rows.iter().enumerate().map(|(index, (keys, what))| {
                 let keys: Vec<String> = match keys {
                     Keys::Fixed(keys) => keys.iter().map(|keys| (*keys).to_owned()).collect(),
@@ -144,13 +145,16 @@ impl Render for KeysHelp {
                         .flex()
                         .gap_1()
                         .children(keys.split(' ').enumerate().map(move |(part, key)| {
-                            Kbd::new(SharedString::from(key.to_owned()))
-                                .spoken(("keys-help-key", group * 1_000 + index * 10 + at + part))
+                            Kbd::new(SharedString::from(key.to_owned())).spoken(SharedString::from(
+                                format!("keys-help-key-{group}-{index}-{at}-{part}"),
+                            ))
                         }))
                 });
                 div()
-                    .id(("keys-help-row", group * 100 + index))
-                    .role(Role::Row)
+                    .id(SharedString::from(format!("keys-help-row-{group}-{index}")))
+                    .role(Role::ListItem)
+                    .aria_position_in_set(index + 1)
+                    .aria_size_of_set(count)
                     .aria_label(i18n::lookup(what, None))
                     .flex()
                     .items_center()
@@ -162,7 +166,7 @@ impl Render for KeysHelp {
             modal = modal.child(
                 div()
                     .id(("keys-help-group", group))
-                    .role(Role::Group)
+                    .role(Role::List)
                     .aria_label(i18n::lookup(heading, None))
                     .flex()
                     .flex_col()
