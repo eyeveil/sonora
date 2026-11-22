@@ -13,6 +13,7 @@ mod flight;
 mod form;
 mod glass;
 mod glide;
+mod hints;
 mod hold;
 mod info_card;
 mod inline_links;
@@ -90,6 +91,7 @@ pub use glass::{
     GLASS_BLUR, GLASS_FILL, bar_surface, blurring, frost, glass, popover_fill, popover_surface,
 };
 pub use glide::{Glide, ScrollPosition};
+pub use hints::{DIAL_WAIT, Dial, Dialed, HintLayer, Jump, hint_target, hinting};
 pub use hold::{Held, Hold, held};
 pub use info_card::{Fact, InfoCard};
 pub use inline_links::{InlineLink, InlineLinks};
@@ -148,9 +150,9 @@ pub use swipe::{hold_swipe, swipe_pull, swiped};
 pub use switch::Switch;
 pub use table::{
     Activate, Cell, ColumnSpec, Deselect, Layout, Listing, MoveRowDown, MoveRowUp, Pending,
-    ROW_GROUP, Remove, RowMoves, SelectNext, SelectPrevious, Sort, Sorting, TABLE_CONTEXT, Table,
-    TableDelegate, TableEvent, TableSource, TableState, Toggle, Viewport, Width, clear_listing,
-    rank, show_listing, shown_listing, table,
+    ROW_GROUP, Remove, RowMoves, SelectFirst, SelectLast, SelectNext, SelectPageDown, SelectPageUp,
+    SelectPrevious, Sort, Sorting, TABLE_CONTEXT, Table, TableDelegate, TableEvent, TableSource,
+    TableState, Toggle, Viewport, Width, clear_listing, rank, show_listing, shown_listing, table,
 };
 pub use tabs::{TabBar, Tabs};
 pub use theme::{

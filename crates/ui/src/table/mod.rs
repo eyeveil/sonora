@@ -4,6 +4,7 @@ use std::cell::Cell as StdCell;
 use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
 use std::ops::Range;
+use std::rc::Rc;
 
 use gpui::prelude::*;
 use gpui::{
@@ -19,6 +20,7 @@ use crate::artwork::{PREFETCH_REACH, Prefetch};
 use crate::drag::{Edge, drop_gap, drop_marker};
 use crate::filters::FilterChange;
 use crate::glass::{bar_surface, blurring, popover_surface};
+use crate::hints::{Jump, hint_target, hinting};
 use crate::menu::{Menu, MenuItem};
 use crate::metrics::{snapped, text_width};
 use crate::motion::Glowing as _;
@@ -37,6 +39,10 @@ actions!(
     [
         SelectNext,
         SelectPrevious,
+        SelectFirst,
+        SelectLast,
+        SelectPageDown,
+        SelectPageUp,
         Deselect,
         Activate,
         Remove,
@@ -873,6 +879,46 @@ impl<S: TableSource> TableState<S> {
         self.step(-1, window, cx);
     }
 
+    fn select_first(&mut self, _: &SelectFirst, window: &mut Window, cx: &mut Context<Self>) {
+        self.step(isize::MIN, window, cx);
+    }
+
+    fn select_last(&mut self, _: &SelectLast, window: &mut Window, cx: &mut Context<Self>) {
+        self.step(isize::MAX, window, cx);
+    }
+
+    fn select_page_down(
+        &mut self,
+        _: &SelectPageDown,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.step(self.half_page(window, cx), window, cx);
+    }
+
+    fn select_page_up(&mut self, _: &SelectPageUp, window: &mut Window, cx: &mut Context<Self>) {
+        self.step(-self.half_page(window, cx), window, cx);
+    }
+
+    /// How many rows half the visible height holds, the step of Ctrl+D and Ctrl+U as in Vim.
+    fn half_page(&self, window: &Window, cx: &App) -> isize {
+        let row = snapped(cx.theme().metrics.row, window);
+        let visible = self.viewport.height - self.viewport.covered;
+        ((visible / row / 2.).floor() as isize).max(1)
+    }
+
+    /// Picks the row shown at `display` and acts on it as Enter would, for a number typed on
+    /// the page or a label typed in quick jump.
+    pub fn play_at(&mut self, display: usize, window: &mut Window, cx: &mut Context<Self>) {
+        if display >= self.delegate.row_count() {
+            return;
+        }
+        self.delegate.pick(self.delegate.row(display), false, false);
+        self.reveal(display, window, cx);
+        cx.emit(TableEvent::Activated(display));
+        cx.notify();
+    }
+
     fn deselect(&mut self, _: &Deselect, _: &mut Window, cx: &mut Context<Self>) {
         if self.context_menu.take().is_some() {
             cx.stop_propagation();
@@ -952,11 +998,14 @@ impl<S: TableSource> TableState<S> {
             return;
         }
 
+        // Jumps to the ends land there whether or not a row is picked yet.
         let display = match self
             .delegate
             .selected
             .and_then(|row| self.delegate.display_of(row))
         {
+            _ if delta == isize::MIN => 0,
+            _ if delta == isize::MAX => count - 1,
             Some(current) => current.saturating_add_signed(delta).min(count - 1),
             None if delta < 0 => count - 1,
             None => 0,
@@ -1423,6 +1472,8 @@ impl<S: TableSource> TableState<S> {
         let gap = self
             .drop_gap
             .filter(|_| moves == RowMoves::On && cx.has_active_drag());
+        let hinted = hinting(cx);
+        let me = cx.entity().downgrade();
 
         let mut rows: Vec<AnyElement> = (first..last)
             .map(|display| {
@@ -1544,6 +1595,24 @@ impl<S: TableSource> TableState<S> {
                         }),
                     )
                     .children(cells)
+                    // Quick jump plays a row as Enter would, and with Shift only picks it.
+                    .when(hinted, |this| {
+                        let play = me.clone();
+                        let pick = me.clone();
+                        let primary: Jump = Rc::new(move |window, cx| {
+                            play.update(cx, |this, cx| this.play_at(display, window, cx))
+                                .ok();
+                        });
+                        let alternate: Jump = Rc::new(move |window, cx| {
+                            pick.update(cx, |this, cx| {
+                                window.focus(&this.focus.clone(), cx);
+                                this.delegate.pick(row, false, false);
+                                cx.notify();
+                            })
+                            .ok();
+                        });
+                        this.child(hint_target(primary, Some(alternate)))
+                    })
                     .map(|this| match gap {
                         Some(gap) if gap == display => this.child(drop_marker(Edge::Above, cx)),
                         Some(gap) if gap == display + 1 && tail => {
@@ -1707,6 +1776,10 @@ impl<S: TableSource> Render for TableState<S> {
             .track_focus(&self.focus)
             .on_action(cx.listener(Self::select_next))
             .on_action(cx.listener(Self::select_previous))
+            .on_action(cx.listener(Self::select_first))
+            .on_action(cx.listener(Self::select_last))
+            .on_action(cx.listener(Self::select_page_down))
+            .on_action(cx.listener(Self::select_page_up))
             .on_action(cx.listener(Self::deselect))
             .on_action(cx.listener(Self::activate))
             .on_action(cx.listener(Self::remove))
@@ -1857,6 +1930,12 @@ pub trait Listing {
     }
     fn select_next(&self, window: &mut Window, cx: &mut App);
     fn select_previous(&self, window: &mut Window, cx: &mut App);
+    fn select_first(&self, window: &mut Window, cx: &mut App);
+    fn select_last(&self, window: &mut Window, cx: &mut App);
+    /// Moves half the visible rows down, or up for `up`.
+    fn select_page(&self, up: bool, window: &mut Window, cx: &mut App);
+    /// Plays the row shown at `display`, as Enter on it would.
+    fn play_at(&self, display: usize, window: &mut Window, cx: &mut App);
     fn deselect(&self, cx: &mut App);
     fn activate(&self, cx: &mut App);
     fn remove(&self, cx: &mut App);
@@ -1974,6 +2053,32 @@ impl<S: TableSource> Listing for Entity<TableState<S>> {
             window.focus(&table.focus.clone(), cx);
             table.step(-1, window, cx);
         });
+    }
+
+    fn select_first(&self, window: &mut Window, cx: &mut App) {
+        self.update(cx, |table, cx| {
+            window.focus(&table.focus.clone(), cx);
+            table.step(isize::MIN, window, cx);
+        });
+    }
+
+    fn select_last(&self, window: &mut Window, cx: &mut App) {
+        self.update(cx, |table, cx| {
+            window.focus(&table.focus.clone(), cx);
+            table.step(isize::MAX, window, cx);
+        });
+    }
+
+    fn select_page(&self, up: bool, window: &mut Window, cx: &mut App) {
+        self.update(cx, |table, cx| {
+            window.focus(&table.focus.clone(), cx);
+            let half = table.half_page(window, cx);
+            table.step(if up { -half } else { half }, window, cx);
+        });
+    }
+
+    fn play_at(&self, display: usize, window: &mut Window, cx: &mut App) {
+        self.update(cx, |table, cx| table.play_at(display, window, cx));
     }
 
     fn deselect(&self, cx: &mut App) {

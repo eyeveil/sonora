@@ -29,6 +29,9 @@
 //! the sort state and focused row of a `Table`. `InfoCard`, `Fact`, `Notice`,
 //! `Vacancy` and `Kbd` return an `AnyElement` once `spoken` gives them an id,
 //! so they are manual passes too.
+//!
+//! `HintLayer` draws deferred, so its Dialog node is out for the same reason as
+//! `Modal`; `tests/hints.rs` drives it headless instead, labels and keys both.
 
 use std::{cell::RefCell, rc::Rc};
 

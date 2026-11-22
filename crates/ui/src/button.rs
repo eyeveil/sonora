@@ -1,5 +1,6 @@
 use std::cell::RefCell;
 use std::f32::consts::TAU;
+use std::rc::Rc;
 use std::sync::Arc;
 
 use gpui::prelude::*;
@@ -11,6 +12,7 @@ use gpui::{
 };
 
 use crate::glass::{GLASS_BLUR, blurring, frost};
+use crate::hints::{SharedClick, click_jump, hint_target, hinting};
 use crate::metrics::{Text, text_width};
 use crate::motion::{Glow, PRESS_SCALE, Springs, Sprung, glow_fill, pressing, solid_fill};
 use crate::panel::Side;
@@ -1014,6 +1016,11 @@ impl RenderOnce for Button {
             })
             .when(interactive, |this| {
                 this.when_some(on_click, |this, handler| {
+                    let handler: SharedClick = Rc::from(handler);
+                    let this = match hinting(cx) {
+                        true => this.child(hint_target(click_jump(handler.clone()), None)),
+                        false => this,
+                    };
                     let shape = shape.clone();
                     this.on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                         .on_click(move |event, window, cx| {

@@ -13,6 +13,7 @@ use crate::artwork::cover_palette;
 use crate::artwork::{Artwork, Avatar, ROUNDED};
 use crate::button::Button;
 use crate::glass::{GLASS_BLUR, blurring};
+use crate::hints::{SharedClick, click_jump, hint_target, hinting};
 use crate::label::Tails as _;
 use crate::metrics::{LEADING, Text, snapped};
 use crate::motion::{PRESS_SCALE, PRESS_SCALE_CARD, glow_fill, glowing, pressing, solid_fill};
@@ -440,6 +441,19 @@ impl RenderOnce for Card {
                 .when(accent, Artwork::accent)
                 .into_any_element(),
         };
+        // Quick jump presses the card as a click would, and with Shift plays it.
+        let press: Option<SharedClick> = press.map(Rc::from);
+        let play: Option<SharedClick> = play.map(Rc::from);
+        let jump = hinting(cx)
+            .then(|| {
+                let primary = press.clone().or_else(|| play.clone())?;
+                let alternate = play.clone().or_else(|| press.clone())?;
+                Some(hint_target(
+                    click_jump(primary),
+                    Some(click_jump(alternate)),
+                ))
+            })
+            .flatten();
         let leading = match play {
             None => leading,
             Some(play) => {
@@ -669,6 +683,7 @@ impl RenderOnce for Card {
                 this.cursor_pointer()
                     .on_click(move |event, window, cx| press(event, window, cx))
             })
+            .children(jump)
             .when_some(menu, |this, menu| {
                 this.on_mouse_down(MouseButton::Right, move |event, window, cx| {
                     window.prevent_default();
