@@ -15,15 +15,17 @@ git config rerere.enabled true
 git fetch upstream --tags
 git fetch origin
 git checkout custom
-git merge --ff-only origin/custom
+# After a conflict was resolved, local custom is already ahead of origin and must stay so.
+if git merge-base --is-ancestor HEAD origin/custom; then
+  git merge --ff-only origin/custom
+fi
 
-before=$(git rev-parse HEAD)
 if ! git rebase "$base"; then
   echo "fork-sync: resolve the conflicts, run 'git rebase --continue', then run this again" >&2
   exit 1
 fi
 
-if [ "$(git rev-parse HEAD)" = "$before" ]; then
+if [ "$(git rev-parse HEAD)" = "$(git rev-parse origin/custom)" ]; then
   echo "fork-sync: custom already sits on $base"
   exit 0
 fi
