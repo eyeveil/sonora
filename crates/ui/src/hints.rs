@@ -45,13 +45,46 @@ pub struct Target {
     pub bounds: Bounds<Pixels>,
     pub primary: Jump,
     pub alternate: Option<Jump>,
+    /// Where in the frame's paint order the target was marked.
+    painted: usize,
 }
 
-/// The targets marked while hints are up, gathered anew every frame.
+/// The targets and covers marked while hints are up, gathered anew every frame.
 #[derive(Default)]
 struct Marks {
     active: bool,
     seen: Vec<Target>,
+    /// What painted over the page, with its place in paint order. A target painted before a
+    /// cover that holds its centre is hidden under it and gets no label.
+    covers: Vec<(usize, Bounds<Pixels>)>,
+    painted: usize,
+}
+
+impl Marks {
+    fn next(&mut self) -> usize {
+        self.painted += 1;
+        self.painted
+    }
+
+    fn clear(&mut self) {
+        self.seen.clear();
+        self.covers.clear();
+        self.painted = 0;
+    }
+
+    /// The targets nothing painted later covers.
+    fn uncovered(&mut self) -> Vec<Target> {
+        let covers = std::mem::take(&mut self.covers);
+        let mut seen = std::mem::take(&mut self.seen);
+        seen.retain(|target| {
+            let centre = target.bounds.center();
+            !covers
+                .iter()
+                .any(|(painted, bounds)| *painted > target.painted && bounds.contains(&centre))
+        });
+        self.painted = 0;
+        seen
+    }
 }
 
 impl Global for Marks {}
@@ -75,11 +108,32 @@ pub fn hint_target(primary: Jump, alternate: Option<Jump>) -> impl IntoElement {
             }
             let marks = cx.default_global::<Marks>();
             if marks.active {
+                let painted = marks.next();
                 marks.seen.push(Target {
                     bounds: shown,
                     primary,
                     alternate,
+                    painted,
                 });
+            }
+        },
+    )
+    .absolute()
+    .inset_0()
+}
+
+/// An empty element filling its parent that hides the labels of whatever painted under the
+/// parent, for chrome drawn over the page such as a see-through player bar. Put it first in the
+/// parent while [`hinting`], so the parent's own buttons, painted after it, keep their labels.
+pub fn hint_cover() -> impl IntoElement {
+    canvas(
+        |_, _, _| {},
+        move |bounds, _, window, cx| {
+            let shown = bounds.intersect(&window.content_mask().bounds);
+            let marks = cx.default_global::<Marks>();
+            if marks.active {
+                let painted = marks.next();
+                marks.covers.push((painted, shown));
             }
         },
     )
@@ -198,6 +252,11 @@ pub struct Dial {
 }
 
 impl Dial {
+    /// The keys typed toward the number so far.
+    pub fn typed(&self) -> &str {
+        &self.typed
+    }
+
     /// The number shown while it waits for another key.
     pub fn pending(&self) -> Option<&str> {
         self.wait.as_ref().map(|_| self.typed.as_str())
@@ -293,7 +352,7 @@ impl HintLayer {
         self.shifted.clear();
         let marks = cx.default_global::<Marks>();
         marks.active = true;
-        marks.seen.clear();
+        marks.clear();
         window.focus(&self.focus, cx);
         window.refresh();
         cx.notify();
@@ -308,7 +367,7 @@ impl HintLayer {
         self.labeled = None;
         let marks = cx.default_global::<Marks>();
         marks.active = false;
-        marks.seen.clear();
+        marks.clear();
         if let Some(focus) = self.restore.take() {
             window.focus(&focus, cx);
         }
@@ -324,7 +383,7 @@ impl HintLayer {
         // The labels are fixed once given, so later frames stop marking.
         let marks = cx.default_global::<Marks>();
         marks.active = false;
-        let mut seen = std::mem::take(&mut marks.seen);
+        let mut seen = marks.uncovered();
         // Labels on nothing would only hold the keyboard until Escape.
         if seen.is_empty() {
             return self.close(window, cx);
@@ -552,6 +611,7 @@ mod tests {
             bounds: Bounds::new(point(px(x), px(y)), gpui::size(px(10.), px(10.))),
             primary: jump.clone(),
             alternate: None,
+            painted: 0,
         };
         let mut targets = vec![at(50., 100.), at(10., 101.), at(10., 10.)];
         reading_order(&mut targets);
@@ -560,5 +620,41 @@ mod tests {
             .map(|t| (f32::from(t.bounds.origin.x), f32::from(t.bounds.origin.y)))
             .collect();
         assert_eq!(order, [(10., 10.), (10., 101.), (50., 100.)]);
+    }
+
+    #[test]
+    fn a_cover_painted_later_hides_what_is_under_it() {
+        let jump: Jump = Rc::new(|_, _| {});
+        let square =
+            |x: f32, y: f32| Bounds::new(point(px(x), px(y)), gpui::size(px(10.), px(10.)));
+        let mut marks = Marks::default();
+        for (x, y) in [(0., 0.), (0., 100.)] {
+            let painted = marks.next();
+            marks.seen.push(Target {
+                bounds: square(x, y),
+                primary: jump.clone(),
+                alternate: None,
+                painted,
+            });
+        }
+        // The bar over the second row paints after it, then its own button paints on top.
+        let painted = marks.next();
+        marks.covers.push((
+            painted,
+            Bounds::new(point(px(0.), px(95.)), gpui::size(px(100.), px(20.))),
+        ));
+        let painted = marks.next();
+        marks.seen.push(Target {
+            bounds: square(50., 100.),
+            primary: jump,
+            alternate: None,
+            painted,
+        });
+        let left: Vec<_> = marks
+            .uncovered()
+            .iter()
+            .map(|t| (f32::from(t.bounds.origin.x), f32::from(t.bounds.origin.y)))
+            .collect();
+        assert_eq!(left, [(0., 0.), (50., 100.)]);
     }
 }

@@ -91,7 +91,7 @@ pub use glass::{
     GLASS_BLUR, GLASS_FILL, bar_surface, blurring, frost, glass, popover_fill, popover_surface,
 };
 pub use glide::{Glide, ScrollPosition};
-pub use hints::{DIAL_WAIT, Dial, Dialed, HintLayer, Jump, hint_target, hinting};
+pub use hints::{DIAL_WAIT, Dial, Dialed, HintLayer, Jump, dial, hint_cover, hint_target, hinting};
 pub use hold::{Held, Hold, held};
 pub use info_card::{Fact, InfoCard};
 pub use inline_links::{InlineLink, InlineLinks};

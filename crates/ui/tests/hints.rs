@@ -4,6 +4,8 @@
 
 use std::{cell::RefCell, rc::Rc};
 
+use gpui::prelude::FluentBuilder as _;
+
 use gpui::{
     AppContext as _, Context, Entity, IntoElement, ParentElement as _, Render, Styled as _,
     TestAppContext, VisualTestContext, Window, div,
@@ -143,4 +145,53 @@ async fn labels_on_nothing_close_at_once(cx: &mut TestAppContext) {
         !window.update(|_, cx| blank.read(cx).layer.read(cx).is_open()),
         "the labels kept the keyboard with nothing to press"
     );
+}
+
+/// A button under a bar drawn over the whole page, with a button of the bar's own.
+struct Covered {
+    layer: Entity<HintLayer>,
+    log: Log,
+}
+
+impl Render for Covered {
+    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let note = |what: &'static str| {
+            let log = self.log.clone();
+            move |_: &gpui::ClickEvent, _: &mut Window, _: &mut gpui::App| {
+                log.borrow_mut().push(what)
+            }
+        };
+        div()
+            .relative()
+            .size_full()
+            .child(Button::new("under").label("Under").on_click(note("under")))
+            .child(
+                div()
+                    .absolute()
+                    .inset_0()
+                    .when(ui::hinting(cx), |bar| bar.child(ui::hint_cover()))
+                    .child(Button::new("bar").label("Bar").on_click(note("bar"))),
+            )
+            .child(self.layer.clone())
+    }
+}
+
+#[gpui::test]
+async fn chrome_drawn_over_the_page_hides_the_labels_under_it(cx: &mut TestAppContext) {
+    cx.update(|cx| cx.set_global(Theme::dark()));
+    let log: Log = Rc::default();
+    let page_log = log.clone();
+    let (page, window) = cx.add_window_view(move |window, cx| Covered {
+        layer: cx.new(|cx| HintLayer::new(window, cx)),
+        log: page_log,
+    });
+    window.run_until_parked();
+    window.update(|window, cx| {
+        let layer = page.read(cx).layer.clone();
+        layer.update(cx, |layer, cx| layer.open(window, cx));
+    });
+    window.run_until_parked();
+    // Only the bar's own button has a label, so it takes the first one.
+    window.simulate_keystrokes("a");
+    assert_eq!(*log.borrow(), ["bar"]);
 }
