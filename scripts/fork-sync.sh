@@ -21,8 +21,15 @@ if git merge-base --is-ancestor HEAD origin/custom; then
 fi
 
 # A commit pushed to origin from elsewhere must not be dropped by the rebase and the force-push.
-if [ -n "$(git log --cherry-pick --right-only --oneline HEAD...origin/custom)" ]; then
-  echo "fork-sync: origin/custom has commits local custom lacks; merge or rebase them in first" >&2
+# A commit rebased with a conflict fix, or skipped because upstream took it, has a new patch but
+# keeps its subject, so commits are matched by subject against local custom and upstream.
+known=$(mktemp)
+trap 'rm -f "$known"' EXIT
+{ git log --format=%s HEAD; git log --format=%s -n 2000 "$base"; } | sort -u > "$known"
+missing=$(git log --cherry-pick --right-only --format=%s HEAD...origin/custom | sort -u | comm -23 - "$known")
+if [ -n "$missing" ]; then
+  echo "fork-sync: origin/custom has commits local custom lacks; merge or rebase them in first:" >&2
+  echo "$missing" >&2
   exit 1
 fi
 
