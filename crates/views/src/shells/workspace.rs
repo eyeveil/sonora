@@ -9,9 +9,10 @@ use input::{TypeDigit, WORKSPACE_CONTEXT};
 use state::{AppSettings, Playback, Queue, SideTab, Sonora};
 use ui::{
     Activate, ActiveTheme as _, DIAL_WAIT, Deselect, Dial, Dialed, Entrance, Remove, SelectFirst,
-    SelectLast, SelectNext, SelectPageDown, SelectPageUp, SelectPrevious, Text, entering,
+    SelectLast, SelectNext, SelectPageDown, SelectPageUp, SelectPrevious, Text, dial, entering,
     shown_listing, veiled,
 };
+use ui::{hint_cover, hinting};
 
 use crate::chrome::{
     AppNotice, Chrome, PlayerBar, SidebarLeft, SidebarRight, SwipeCue, TitleBarOptions,
@@ -83,15 +84,23 @@ impl Workspace {
         let numbers = list.numbers(cx);
         match self.dial.push(digit.0, list.entity_id(), &numbers) {
             Dialed::Now(display) => list.play_at(display, window, cx),
-            dialed @ (Dialed::Wait(_) | Dialed::Partial) => {
-                // The number belongs to this list, so a page left meanwhile plays nothing.
+            Dialed::Wait(_) | Dialed::Partial => {
+                // The number belongs to this list, so a page left meanwhile plays nothing. It
+                // is matched again when the wait ends, so a list sorted or filtered meanwhile
+                // plays the row that shows the number then.
                 let table = list.entity_id();
+                let typed = self.dial.typed().to_owned();
                 let wait = cx.spawn_in(window, async move |this, cx| {
                     cx.background_executor().timer(DIAL_WAIT).await;
                     this.update_in(cx, |this, window, cx| {
                         this.dial.clear();
                         let shown = shown_listing(cx).filter(|list| list.entity_id() == table);
-                        if let (Dialed::Wait(display), Some(list)) = (dialed, shown) {
+                        let Some(list) = shown else {
+                            return;
+                        };
+                        if let Dialed::Now(display) | Dialed::Wait(display) =
+                            dial(&typed, &list.numbers(cx))
+                        {
                             list.play_at(display, window, cx);
                         }
                         cx.notify();
@@ -222,6 +231,7 @@ impl Shell for Workspace {
 
 impl Render for Workspace {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let hinted = hinting(cx);
         let right = self.sidebar_right.read(cx).occupied_width(window);
         let reserved = self.sidebar_right.read(cx).reserved_width();
         self.sidebar
@@ -429,6 +439,7 @@ impl Render for Workspace {
                                                 .left(-overlay_width)
                                                 .right_0()
                                                 .top_0()
+                                                .when(hinted, |this| this.child(hint_cover()))
                                                 .child(header),
                                         )
                                     }),
@@ -442,6 +453,8 @@ impl Render for Workspace {
                 div()
                     .relative()
                     .when(underlap, |bar| bar.absolute().left_0().right_0().bottom_0())
+                    // The bar covers the page under it, so rows there get no label.
+                    .when(hinted, |bar| bar.child(hint_cover()))
                     .child(
                         self.player_bar
                             .clone()
