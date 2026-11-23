@@ -319,8 +319,12 @@ impl HintLayer {
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
         let focus = cx.focus_handle();
         // Labels without the keyboard could not be typed, so losing it takes them down.
+        // A switch to another window keeps where the keyboard was, so coming back finds it;
+        // focus taken inside the window stays where it went.
         cx.on_blur(&focus, window, |this, window, cx| {
-            this.restore = None;
+            if window.is_window_active() {
+                this.restore = None;
+            }
             this.close(window, cx);
         })
         .detach();

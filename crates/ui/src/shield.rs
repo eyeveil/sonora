@@ -1,6 +1,8 @@
 use gpui::prelude::*;
 use gpui::{App, Div, ElementId, Interactivity, Stateful, StyleRefinement, Window, div};
 
+use crate::hints::{hint_cover, hinting};
+
 #[derive(IntoElement)]
 pub struct Shield {
     base: Stateful<Div>,
@@ -28,11 +30,14 @@ impl InteractiveElement for Shield {
 impl StatefulInteractiveElement for Shield {}
 
 impl RenderOnce for Shield {
-    fn render(self, _window: &mut Window, _cx: &mut App) -> impl IntoElement {
+    fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
         let mut base = self.base;
         let overrides = std::mem::take(base.style());
 
-        let mut shield = base.occlude();
+        // What a shield blocks the pointer from, quick jump gives no label either.
+        let mut shield = base
+            .occlude()
+            .when(hinting(cx), |this| this.child(hint_cover()));
         shield.style().refine(&overrides);
         shield
     }
