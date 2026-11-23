@@ -689,6 +689,13 @@ impl Root {
     /// Opens settings on the page they last showed, inside the workspace.
     /// Hands the keyboard to the shell that is up, for when nothing else holds it.
     fn focus_shell(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        // An open quick search keeps the keyboard, on its list, so the page under it takes
+        // no keys; the hint labels close themselves when they lose it.
+        if self.powerbar.read(cx).is_open() {
+            self.powerbar
+                .update(cx, |powerbar, cx| powerbar.focus_list(window, cx));
+            return;
+        }
         match self.view {
             RootView::Workspace => self
                 .shells

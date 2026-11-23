@@ -332,6 +332,12 @@ impl Powerbar {
         }
     }
 
+    /// Puts the keyboard in normal mode on the list, for a press that took it from the field.
+    pub(crate) fn focus_list(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        window.focus(&self.normal, cx);
+        cx.notify();
+    }
+
     /// Whether the keyboard is in normal mode, on the list rather than in the field.
     fn in_normal(&self, window: &Window) -> bool {
         self.normal.is_focused(window)

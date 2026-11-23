@@ -90,11 +90,16 @@ impl Workspace {
                 // plays the row that shows the number then.
                 let table = list.entity_id();
                 let typed = self.dial.typed().to_owned();
+                // Albums share one table, so the page the number was typed on has to be the
+                // one still open.
+                let page = router::trail(cx).read(cx).current();
                 let wait = cx.spawn_in(window, async move |this, cx| {
                     cx.background_executor().timer(DIAL_WAIT).await;
                     this.update_in(cx, |this, window, cx| {
                         this.dial.clear();
-                        let shown = shown_listing(cx).filter(|list| list.entity_id() == table);
+                        let same_page = router::trail(cx).read(cx).current() == page;
+                        let shown =
+                            shown_listing(cx).filter(|list| same_page && list.entity_id() == table);
                         let Some(list) = shown else {
                             return;
                         };
