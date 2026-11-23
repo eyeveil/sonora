@@ -8,11 +8,11 @@ use gpui::{Action, KeyBinding, Keystroke};
 use ui::{FORM_CONTEXT, INPUT_CONTEXT, MENU_CONTEXT, TABLE_CONTEXT};
 
 use crate::{
-    DecreaseFontSize, HintJump, IncreaseFontSize, NavigateBack, NavigateForward, OpenFilter,
-    OpenSearch, OpenSettings, POWERBAR_CONTEXT, Refresh, ResetFontSize, SEARCH_CONTEXT, SeekBack,
-    SeekForward, SongNext, SongPrevious, ToggleFullscreen, ToggleLyrics, TogglePlayback,
-    TogglePowerbar, ToggleQueue, ToggleRepeat, ToggleShuffle, ToggleWindowFullscreen, VolumeDown,
-    VolumeUp, WORKSPACE_CONTEXT,
+    COVER_VIEWER_CONTEXT, DecreaseFontSize, HintJump, IncreaseFontSize, NavigateBack,
+    NavigateForward, OpenFilter, OpenSearch, OpenSettings, POWERBAR_CONTEXT, Refresh,
+    ResetFontSize, SEARCH_CONTEXT, SeekBack, SeekForward, SongNext, SongPrevious, ToggleFullscreen,
+    ToggleLyrics, TogglePlayback, TogglePowerbar, ToggleQueue, ToggleRepeat, ToggleShuffle,
+    ToggleWindowFullscreen, VolumeDown, VolumeUp, WORKSPACE_CONTEXT,
 };
 
 /// The modifiers that make a keystroke a command rather than typing. A key pressed without any
@@ -479,7 +479,7 @@ fn bind<A: Action + Default>(keystroke: &str, context: Option<&str>) -> KeyBindi
 /// form, search or powerbar in the focus path.
 pub(crate) fn browsing_context() -> String {
     format!(
-        "{WORKSPACE_CONTEXT} && !{INPUT_CONTEXT} && !{MENU_CONTEXT} && !{FORM_CONTEXT} && !{TABLE_CONTEXT} && !{SEARCH_CONTEXT} && !{POWERBAR_CONTEXT}"
+        "{WORKSPACE_CONTEXT} && !{INPUT_CONTEXT} && !{MENU_CONTEXT} && !{FORM_CONTEXT} && !{TABLE_CONTEXT} && !{SEARCH_CONTEXT} && !{POWERBAR_CONTEXT} && !{COVER_VIEWER_CONTEXT}"
     )
 }
 
@@ -490,7 +490,6 @@ mod tests {
     use gpui::KeyContext;
 
     use super::*;
-    use crate::COVER_VIEWER_CONTEXT;
 
     /// The binding the default keymap gives action `A`.
     fn binding_of<A: Action>() -> KeyBinding {
@@ -697,6 +696,11 @@ mod tests {
             action_for("0", &["Workspace", COVER_VIEWER_CONTEXT]),
             Some("sonora::ZoomReset")
         );
+        // The cover viewer over an album keeps the list behind it from playing or moving.
+        let viewer = ["Workspace", COVER_VIEWER_CONTEXT];
+        assert_eq!(action_for("3", &viewer), None);
+        assert_eq!(action_for("j", &viewer), None);
+        assert_eq!(action_for("shift-g", &viewer), None);
     }
 
     #[test]

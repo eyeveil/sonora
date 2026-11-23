@@ -118,8 +118,9 @@ fn vim(overrides: &BTreeMap<String, Vec<String>>) -> Vec<KeyBinding> {
     let typing = format!("{SEARCH_CONTEXT} > {INPUT_CONTEXT}");
     let quick_typing = format!("{POWERBAR_CONTEXT} > {INPUT_CONTEXT}");
     let quick_normal = format!("{POWERBAR_CONTEXT} && !{INPUT_CONTEXT}");
-    let pages =
-        format!("{WORKSPACE_CONTEXT} && !{INPUT_CONTEXT} && !{MENU_CONTEXT} && !{FORM_CONTEXT}");
+    let pages = format!(
+        "{WORKSPACE_CONTEXT} && !{INPUT_CONTEXT} && !{MENU_CONTEXT} && !{FORM_CONTEXT} && !{COVER_VIEWER_CONTEXT}"
+    );
 
     let mut keys = VimKeys::new(overrides);
     for context in [
