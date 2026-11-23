@@ -44,7 +44,8 @@ latest release (`upstream/stable`) with this fork's commits on top. The nebula r
   while 26 or fewer targets show and two letters after that, home row first. Type a label to
   press it. Type it with Shift to play a card instead of opening it, or to only select a row.
   Backspace removes a letter and its Shift, and Escape or a click closes the labels. A page with
-  nothing to press closes them at once, and they don't open over a dialog. Upstream's `f` for
+  nothing to press closes them at once, and they don't open over a dialog. Nothing under the player bar,
+  the page header, a menu, a dialog or the cover viewer gets a label. Upstream's `f` for
   the fullscreen player moves to `Shift+F`. Both keys can be changed under Settings, Keybinds.
 - **Track numbers.** On a page with a numbered track list (an artist's Popular list, an album,
   a playlist, Songs), typing the number a row shows plays it. On a list of five, `3` plays at
